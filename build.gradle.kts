@@ -22,9 +22,5 @@ dependencies {
     testImplementation("org.openrewrite:rewrite-test")
     testImplementation("org.openrewrite:rewrite-java-test")
 
-    // Test classpath dependencies for annotation parsing
-    testRuntimeOnly("org.springframework:spring-web:6.+")
-    testRuntimeOnly("org.springframework:spring-context:6.+")
-
     testRuntimeOnly("ch.qos.logback:logback-classic:latest.release")
 }
