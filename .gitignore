@@ -21,6 +21,9 @@ working-set*/
 
 # Compiled files
 *.class
-*.jar
 *.war
 *.ear
+
+# Jar files (except gradle wrapper)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
