@@ -75,8 +75,8 @@ class UpdateAgentConfigTest implements RewriteTest {
                     assertThat(after).contains("test-coverage.md");
 
                     // Check for template content (agent instructions)
-                    assertThat(after).contains("How to Use This Context");
-                    assertThat(after).contains("When you use information from Prethink context");
+                    assertThat(after).contains("IMPORTANT: Before exploring source code");
+                    assertThat(after).contains("### Usage Pattern");
 
                     // Verify original content preserved
                     assertThat(after).contains("# Project Documentation");
