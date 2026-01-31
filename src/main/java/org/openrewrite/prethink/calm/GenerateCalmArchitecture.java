@@ -19,8 +19,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import lombok.AllArgsConstructor;
-import lombok.Data;
 import org.openrewrite.prethink.table.ClassDescriptions;
 import org.openrewrite.prethink.table.DataAssets;
 import org.openrewrite.prethink.table.DatabaseConnections;
@@ -54,7 +52,6 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
     private static final String CALM_FILENAME = "calm-architecture.json";
     private static final String CALM_SCHEMA = "https://calm.finos.org/draft/2025-03/meta/calm.json";
-    private static final String PLACEHOLDER_CONTENT = "{}";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT)
@@ -77,16 +74,14 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         return true;
     }
 
-    @Data
-    @AllArgsConstructor
+    @Value
     public static class Accumulator {
-        final Set<Path> existingContextPaths;
-        boolean createdPlaceholder;
+        Set<Path> existingContextPaths;
     }
 
     @Override
     public Accumulator getInitialValue(ExecutionContext ctx) {
-        return new Accumulator(new HashSet<>(), false);
+        return new Accumulator(new HashSet<>());
     }
 
     @Override
@@ -108,24 +103,23 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
     @Override
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
-        // Cycle 1: Create placeholder file (triggers cycle 2)
-        // Cycle 2: Placeholder will be populated in getVisitor() using data tables
-        if (ctx.getCycle() == 1) {
-            List<SourceFile> generated = new ArrayList<>();
+        // Cycle 1: Don't generate - data tables aren't populated until visitors run
+        // Cycle 2: Generate file only if there's actual architectural data
+        if (ctx.getCycle() == 2) {
             Path calmPath = CONTEXT_DIR.resolve(CALM_FILENAME);
 
             if (!acc.getExistingContextPaths().contains(calmPath)) {
-                PlainText calmFile = PlainText.builder()
-                        .text(PLACEHOLDER_CONTENT)
-                        .sourcePath(calmPath)
-                        .build();
-                generated.add(calmFile);
-                acc.setCreatedPlaceholder(true);
+                String content = generateCalmJsonFromDataTables(ctx);
+                if (content != null) {
+                    PlainText calmFile = PlainText.builder()
+                            .text(content)
+                            .sourcePath(calmPath)
+                            .build();
+                    return Collections.singletonList(calmFile);
+                }
             }
-            return generated;
         }
 
-        // Cycle 2+: Don't generate new files
         return Collections.emptyList();
     }
 
@@ -134,10 +128,8 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Skip first cycle only if we just created a placeholder.
-                // If the file already existed, process it immediately since
-                // Find* recipes have already populated the data tables.
-                if (ctx.getCycle() == 1 && acc.isCreatedPlaceholder()) {
+                // Only process in cycle 2+ when data tables are populated
+                if (ctx.getCycle() == 1) {
                     return tree;
                 }
                 if (tree instanceof PlainText) {
@@ -145,20 +137,14 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     Path path = pt.getSourcePath();
 
                     if (path.equals(CONTEXT_DIR.resolve(CALM_FILENAME))) {
-                        // Generate CALM content from data tables (now available in visitor phase)
                         String newContent = generateCalmJsonFromDataTables(ctx);
 
-                        // If no architectural data found
+                        // No architectural data - delete the file
                         if (newContent == null) {
-                            // Delete if it's a placeholder (empty or our placeholder content)
-                            // This works across cycles since accumulators are reset between cycles
-                            if (PLACEHOLDER_CONTENT.equals(pt.getText()) || pt.getText().trim().isEmpty()) {
-                                return null;
-                            }
-                            return tree;
+                            return null;
                         }
 
-                        // Update with real CALM content if different
+                        // Update with new content if different
                         if (!newContent.equals(pt.getText())) {
                             return pt.withText(newContent);
                         }
