@@ -34,8 +34,18 @@ public class ErrorHandlingPatterns extends DataTable<ErrorHandlingPatterns.Row> 
                 description = "The path to the source file.")
         String sourcePath;
 
+        @Column(displayName = "Class name",
+                description = "The class containing the error handling.")
+        @Nullable
+        String className;
+
+        @Column(displayName = "Method name",
+                description = "The method containing the error handling.")
+        @Nullable
+        String methodName;
+
         @Column(displayName = "Pattern type",
-                description = "The type of error handling pattern (try-catch, throws, global handler).")
+                description = "The type of error handling pattern (try-catch, throws, global-handler, exception-handler-method).")
         String patternType;
 
         @Column(displayName = "Exception types",
@@ -44,18 +54,18 @@ public class ErrorHandlingPatterns extends DataTable<ErrorHandlingPatterns.Row> 
         String exceptionTypes;
 
         @Column(displayName = "Handling strategy",
-                description = "How the error is handled (log, rethrow, wrap, suppress).")
+                description = "How the error is handled (log, rethrow, wrap, suppress, propagate, handle, ignore).")
         @Nullable
         String handlingStrategy;
 
-        @Column(displayName = "Context",
-                description = "The class and method where this pattern occurs.")
+        @Column(displayName = "Logging framework",
+                description = "The logging framework used, if detected.")
         @Nullable
-        String context;
+        String loggingFramework;
 
-        @Column(displayName = "Details",
-                description = "Additional details about the error handling.")
+        @Column(displayName = "Log level",
+                description = "The log level used for error logging.")
         @Nullable
-        String details;
+        String logLevel;
     }
 }
