@@ -85,6 +85,9 @@ public class UpdatePrethinkContext extends Recipe {
                 ))
 
                 // Update agent config files
-                .recipe(new UpdateAgentConfig(null));
+                .recipe(new UpdateAgentConfig(null))
+
+                // Update .gitignore to allow committing context files
+                .recipe(new UpdateGitignore());
     }
 }
