@@ -54,6 +54,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     );
 
     private static final List<String> AGENT_CONFIG_FILES = Arrays.asList(
+            "AGENTS.md",
             "CLAUDE.md",
             ".cursorrules",
             ".github/copilot-instructions.md"
