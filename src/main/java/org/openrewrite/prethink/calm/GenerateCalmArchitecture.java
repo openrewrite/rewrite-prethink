@@ -246,6 +246,9 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         private final List<CalmNode> nodes = new ArrayList<>();
         private final List<CalmRelationship> relationships = new ArrayList<>();
         private final Map<String, String> serviceClassToId = new HashMap<>();
+        private final Map<String, String> repositoryClassToNodeId = new HashMap<>(); // repositoryClass -> nodeId
+        private final Map<String, String> externalClientClassToNodeId = new HashMap<>(); // clientClass -> nodeId
+        private final Map<String, String> messagingClassToNodeId = new HashMap<>(); // className -> nodeId
         private final List<String> serviceNodeIds = new ArrayList<>();
         private final Map<String, String> aiDescriptionsByClass = new HashMap<>();
         private final Map<String, String> classToEntityId = new HashMap<>(); // className -> entityId
@@ -421,7 +424,16 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             for (DatabaseConnections.Row db : databases) {
                 String nodeId = toKebabCase(db.getEntityName()) + "-db";
                 if (!seen.add(nodeId)) {
+                    // Still track the mapping even for duplicates
+                    if (db.getRepositoryClass() != null) {
+                        repositoryClassToNodeId.put(db.getRepositoryClass(), nodeId);
+                    }
                     continue;
+                }
+
+                // Track repository class to node ID for relationship resolution
+                if (db.getRepositoryClass() != null) {
+                    repositoryClassToNodeId.put(db.getRepositoryClass(), nodeId);
                 }
 
                 String dbType = db.getDatabaseType() != null ? db.getDatabaseType() : "SQL";
@@ -446,6 +458,12 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             Set<String> seen = new HashSet<>();
             for (ExternalServiceCalls.Row ext : externalCalls) {
                 String nodeId = toKebabCase(ext.getTargetService());
+
+                // Track client class to external service node ID for relationship resolution
+                if (ext.getClientClass() != null) {
+                    externalClientClassToNodeId.put(ext.getClientClass(), nodeId);
+                }
+
                 if (!seen.add(nodeId)) {
                     continue;
                 }
@@ -476,6 +494,11 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     destinationToNodeId.put(msg.getDestination(), nodeId);
                     nodes.add(new CalmNode(nodeId, "network", msg.getDestination(),
                             msg.getMessagingType() + " " + (msg.getRole().equals("consumer") ? "topic/queue" : "destination"), null));
+                }
+
+                // Track messaging class to node ID for relationship resolution
+                if (msg.getClassName() != null) {
+                    messagingClassToNodeId.put(msg.getClassName(), destinationToNodeId.get(msg.getDestination()));
                 }
 
                 String serviceId = findServiceForClass(msg.getClassName());
@@ -555,15 +578,44 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         }
 
         private @Nullable String findNodeIdForEntityId(String entityId) {
-            // Entity IDs are like "endpoint:com.example.GreetingController#greeting(String)"
+            // Entity IDs have format "type:className" or "type:className#method"
             // We need to map this to the node ID we created
+            String className = extractClassNameFromEntityId(entityId);
+            if (className == null) {
+                return null;
+            }
+
             if (entityId.startsWith("endpoint:")) {
-                String methodPart = entityId.substring("endpoint:".length());
-                String className = methodPart.contains("#") ?
-                        methodPart.substring(0, methodPart.indexOf('#')) : methodPart;
                 return serviceClassToId.get(className);
+            } else if (entityId.startsWith("repository:") || entityId.startsWith("entity:")) {
+                return repositoryClassToNodeId.get(className);
+            } else if (entityId.startsWith("external:")) {
+                return externalClientClassToNodeId.get(className);
+            } else if (entityId.startsWith("messaging:")) {
+                return messagingClassToNodeId.get(className);
+            } else if (entityId.startsWith("service:")) {
+                // @Service/@Component classes - check if they have an endpoint nodeId
+                // or are associated with other nodes
+                String nodeId = serviceClassToId.get(className);
+                if (nodeId != null) {
+                    return nodeId;
+                }
+                // Fall back to generating a node ID from the class name
+                String simpleName = className.substring(className.lastIndexOf('.') + 1);
+                return toKebabCase(simpleName);
             }
             return null;
+        }
+
+        private @Nullable String extractClassNameFromEntityId(String entityId) {
+            int colonIdx = entityId.indexOf(':');
+            if (colonIdx < 0) {
+                return null;
+            }
+            String rest = entityId.substring(colonIdx + 1);
+            // Remove method signature if present
+            int hashIdx = rest.indexOf('#');
+            return hashIdx >= 0 ? rest.substring(0, hashIdx) : rest;
         }
 
         private boolean isDataClass(String className) {
