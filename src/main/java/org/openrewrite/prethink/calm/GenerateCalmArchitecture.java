@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import org.openrewrite.prethink.table.CalmRelationships;
 import org.openrewrite.prethink.table.ClassDescriptions;
 import org.openrewrite.prethink.table.DataAssets;
 import org.openrewrite.prethink.table.DatabaseConnections;
@@ -69,6 +70,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                "and messaging connections.";
     }
 
+
     @Override
     public boolean causesAnotherCycle() {
         return true;
@@ -81,6 +83,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
     @Override
     public Accumulator getInitialValue(ExecutionContext ctx) {
+        debug("[CALM DEBUG] getInitialValue() called, cycle=" + ctx.getCycle());
         return new Accumulator(new HashSet<>());
     }
 
@@ -101,21 +104,42 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         };
     }
 
+    @SuppressWarnings("unused")
+    private static void debug(String message) {
+        // Debug logging - uncomment for troubleshooting
+        // System.err.println(message);
+    }
+
     @Override
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
-        // Cycle 1: Don't generate - data tables aren't populated until visitors run
-        // Cycle 2: Generate file only if there's actual architectural data
-        if (ctx.getCycle() == 2) {
-            Path calmPath = CONTEXT_DIR.resolve(CALM_FILENAME);
+        debug("[CALM DEBUG] generate() called, cycle=" + ctx.getCycle());
 
+        Path calmPath = CONTEXT_DIR.resolve(CALM_FILENAME);
+
+        if (ctx.getCycle() == 1) {
+            // In cycle 1, DATA_TABLES won't be populated yet (rows are inserted in visitor phase).
+            // Generate a placeholder to trigger cycle 2.
+            if (!acc.getExistingContextPaths().contains(calmPath)) {
+                debug("[CALM DEBUG] cycle 1: generating placeholder to trigger cycle 2");
+                PlainText placeholder = PlainText.builder()
+                        .text("{}")
+                        .sourcePath(calmPath)
+                        .build();
+                return Collections.singletonList(placeholder);
+            }
+        } else {
+            // Cycle 2+: DATA_TABLES should be populated from cycle 1 visitors
             if (!acc.getExistingContextPaths().contains(calmPath)) {
                 String content = generateCalmJsonFromDataTables(ctx);
                 if (content != null) {
+                    debug("[CALM DEBUG] cycle 2+: generating CALM file at " + calmPath);
                     PlainText calmFile = PlainText.builder()
                             .text(content)
                             .sourcePath(calmPath)
                             .build();
                     return Collections.singletonList(calmFile);
+                } else {
+                    debug("[CALM DEBUG] cycle 2+: no data, not generating CALM file");
                 }
             }
         }
@@ -128,8 +152,9 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Only process in cycle 2+ when data tables are populated
-                if (ctx.getCycle() == 1) {
+                // Only process in cycle 2 when DATA_TABLES is populated from cycle 1 visitors.
+                // Don't process in later cycles to avoid infinite loop.
+                if (ctx.getCycle() != 2) {
                     return tree;
                 }
                 if (tree instanceof PlainText) {
@@ -137,15 +162,18 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     Path path = pt.getSourcePath();
 
                     if (path.equals(CONTEXT_DIR.resolve(CALM_FILENAME))) {
+                        debug("[CALM DEBUG] visitor processing CALM file, cycle=" + ctx.getCycle());
                         String newContent = generateCalmJsonFromDataTables(ctx);
 
-                        // No architectural data - delete the file
+                        // No architectural data - delete the placeholder file
                         if (newContent == null) {
+                            debug("[CALM DEBUG] no content, deleting placeholder");
                             return null;
                         }
 
                         // Update with new content if different
                         if (!newContent.equals(pt.getText())) {
+                            debug("[CALM DEBUG] updating CALM file with content");
                             return pt.withText(newContent);
                         }
                     }
@@ -168,7 +196,16 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
     private @Nullable String generateCalmJsonFromDataTables(ExecutionContext ctx) {
         Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
 
+        debug("[CALM DEBUG] allTables null? " + (allTables == null));
+        if (allTables != null) {
+            debug("[CALM DEBUG] allTables size: " + allTables.size());
+            for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
+                debug("[CALM DEBUG]   table: " + entry.getKey().getClass().getName() + " rows: " + entry.getValue().size());
+            }
+        }
+
         if (allTables == null || allTables.isEmpty()) {
+            debug("[CALM DEBUG] returning null - allTables empty");
             return null;
         }
 
@@ -176,9 +213,14 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         List<DatabaseConnections.Row> databases = getTableRows(allTables, DatabaseConnections.class);
         List<ExternalServiceCalls.Row> externalCalls = getTableRows(allTables, ExternalServiceCalls.class);
         List<MessagingConnections.Row> messaging = getTableRows(allTables, MessagingConnections.class);
+        List<CalmRelationships.Row> methodCalls = getTableRows(allTables, CalmRelationships.class);
+        debug("[CALM DEBUG] endpoints: " + endpoints.size() + ", databases: " + databases.size() +
+              ", externalCalls: " + externalCalls.size() + ", messaging: " + messaging.size() +
+              ", methodCalls: " + methodCalls.size());
 
         // Don't generate empty architecture files
-        if (endpoints.isEmpty() && databases.isEmpty() && externalCalls.isEmpty() && messaging.isEmpty()) {
+        if (endpoints.isEmpty() && databases.isEmpty() && externalCalls.isEmpty() &&
+            messaging.isEmpty() && methodCalls.isEmpty()) {
             return null;
         }
 
@@ -190,6 +232,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         builder.addDatabaseNodes(databases);
         builder.addExternalServiceNodes(externalCalls);
         builder.addMessagingNodes(messaging);
+        builder.addMethodCallRelationships(methodCalls);
         builder.addComposedOfRelationships();
 
         try {
@@ -205,6 +248,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         private final Map<String, String> serviceClassToId = new HashMap<>();
         private final List<String> serviceNodeIds = new ArrayList<>();
         private final Map<String, String> aiDescriptionsByClass = new HashMap<>();
+        private final Map<String, String> classToEntityId = new HashMap<>(); // className -> entityId
         private final List<ServerConfiguration.Row> serverConfigs;
         private final List<DataAssets.Row> dataAssets;
         private final List<ProjectMetadata.Row> projectMetadata;
@@ -231,6 +275,46 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             } else {
                 this.serverProtocol = "HTTP";
                 this.serverPort = 8080;
+            }
+
+            // Build class-to-entityId registry from all entity discovery tables
+            buildClassToEntityRegistry(allTables);
+        }
+
+        private void buildClassToEntityRegistry(Map<DataTable<?>, List<?>> allTables) {
+            // ServiceEndpoints
+            List<ServiceEndpoints.Row> endpoints = getTableRows(allTables, ServiceEndpoints.class);
+            for (ServiceEndpoints.Row row : endpoints) {
+                if (row.getServiceClass() != null) {
+                    classToEntityId.put(row.getServiceClass(), row.getEntityId());
+                }
+            }
+
+            // DatabaseConnections
+            List<DatabaseConnections.Row> databases = getTableRows(allTables, DatabaseConnections.class);
+            for (DatabaseConnections.Row row : databases) {
+                if (row.getRepositoryClass() != null) {
+                    classToEntityId.put(row.getRepositoryClass(), row.getEntityId());
+                }
+                if (row.getEntityClass() != null && !classToEntityId.containsKey(row.getEntityClass())) {
+                    classToEntityId.put(row.getEntityClass(), row.getEntityId());
+                }
+            }
+
+            // ExternalServiceCalls
+            List<ExternalServiceCalls.Row> externalCalls = getTableRows(allTables, ExternalServiceCalls.class);
+            for (ExternalServiceCalls.Row row : externalCalls) {
+                if (row.getClientClass() != null) {
+                    classToEntityId.put(row.getClientClass(), row.getEntityId());
+                }
+            }
+
+            // MessagingConnections
+            List<MessagingConnections.Row> messaging = getTableRows(allTables, MessagingConnections.class);
+            for (MessagingConnections.Row row : messaging) {
+                if (row.getClassName() != null) {
+                    classToEntityId.put(row.getClassName(), row.getEntityId());
+                }
             }
         }
 
@@ -262,18 +346,14 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 if (classEndpoints == null || classEndpoints.isEmpty()) {
                     continue;
                 }
-                ServiceEndpoints.Row first = classEndpoints.get(0);
-                if (first == null) {
-                    continue;
-                }
-
-                String nodeId = toKebabCase(first.getServiceName());
+                String simpleName = serviceClass.substring(serviceClass.lastIndexOf('.') + 1);
+                String nodeId = toKebabCase(simpleName);
                 serviceClassToId.put(serviceClass, nodeId);
 
                 List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverProtocol, serverPort));
                 String description = buildServiceDescription(serviceClass, classEndpoints);
 
-                nodes.add(new CalmNode(nodeId, "service", first.getServiceName(), description, interfaces));
+                nodes.add(new CalmNode(nodeId, "service", simpleName, description, interfaces));
                 serviceNodeIds.add(nodeId);
             }
         }
@@ -421,6 +501,83 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     }
                 }
             }
+        }
+
+        void addMethodCallRelationships(List<CalmRelationships.Row> methodCalls) {
+            // Track unique relationships to avoid duplicates
+            Set<String> seenRelationships = new HashSet<>();
+
+            for (CalmRelationships.Row call : methodCalls) {
+                // Look up entity IDs from the registry (CalmRelationships may have null IDs
+                // since data tables are only persisted from cycle 1)
+                String callerEntityId = classToEntityId.get(call.getFromClass());
+                String calledEntityId = classToEntityId.get(call.getToClass());
+
+                if (callerEntityId != null && calledEntityId != null && !callerEntityId.equals(calledEntityId)) {
+                    // Create a unique key for this relationship
+                    String relationshipKey = callerEntityId + "->" + calledEntityId;
+                    if (seenRelationships.add(relationshipKey)) {
+                        // Get node IDs for both entities
+                        String fromNodeId = findNodeIdForEntityId(callerEntityId);
+                        String toNodeId = findNodeIdForEntityId(calledEntityId);
+
+                        if (fromNodeId != null && toNodeId != null) {
+                            relationships.add(new CalmRelationship(
+                                    fromNodeId + "-calls-" + toNodeId, "interacts",
+                                    new CalmEndpoint(fromNodeId, null),
+                                    new CalmDestination(toNodeId, null), null
+                            ));
+                        }
+                    }
+                } else if (callerEntityId != null && calledEntityId == null) {
+                    // Caller is an entity, callee is a regular class
+                    // This might represent calls to utilities, data classes, etc.
+                    // We can track these for data flow analysis
+                    String toClass = call.getToClass();
+                    if (toClass != null && isDataClass(toClass)) {
+                        String fromNodeId = findNodeIdForEntityId(callerEntityId);
+                        String dataNodeId = toKebabCase(toClass.substring(toClass.lastIndexOf('.') + 1)) + "-data";
+
+                        // Check if we have a data asset node for this class
+                        if (fromNodeId != null && hasDataAssetNode(dataNodeId)) {
+                            String relationshipKey = callerEntityId + "->" + toClass;
+                            if (seenRelationships.add(relationshipKey)) {
+                                relationships.add(new CalmRelationship(
+                                        fromNodeId + "-uses-" + dataNodeId, "interacts",
+                                        new CalmEndpoint(fromNodeId, null),
+                                        new CalmDestination(dataNodeId, null), null
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private @Nullable String findNodeIdForEntityId(String entityId) {
+            // Entity IDs are like "endpoint:com.example.GreetingController#greeting(String)"
+            // We need to map this to the node ID we created
+            if (entityId.startsWith("endpoint:")) {
+                String methodPart = entityId.substring("endpoint:".length());
+                String className = methodPart.contains("#") ?
+                        methodPart.substring(0, methodPart.indexOf('#')) : methodPart;
+                return serviceClassToId.get(className);
+            }
+            return null;
+        }
+
+        private boolean isDataClass(String className) {
+            // Check if this class looks like a data class (DTO, entity, record, etc.)
+            String simpleName = className.substring(className.lastIndexOf('.') + 1);
+            return simpleName.endsWith("DTO") || simpleName.endsWith("Entity") ||
+                   simpleName.endsWith("Request") || simpleName.endsWith("Response") ||
+                   simpleName.endsWith("Model") || simpleName.endsWith("Record") ||
+                   // Also check if it's in our data assets
+                   dataAssets.stream().anyMatch(da -> da.getClassName().equals(className));
+        }
+
+        private boolean hasDataAssetNode(String nodeId) {
+            return nodes.stream().anyMatch(n -> n.getUniqueId().equals(nodeId));
         }
 
         void addComposedOfRelationships() {

@@ -30,6 +30,10 @@ public class MessagingConnections extends DataTable<MessagingConnections.Row> {
 
     @Value
     public static class Row {
+        @Column(displayName = "Entity ID",
+                description = "Unique identifier for this messaging entity (format: messaging:{className}#{methodName}:{role}).")
+        String entityId;
+
         @Column(displayName = "Source path",
                 description = "The path to the source file containing the messaging component.")
         String sourcePath;

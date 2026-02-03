@@ -30,6 +30,10 @@ public class ServiceEndpoints extends DataTable<ServiceEndpoints.Row> {
 
     @Value
     public static class Row {
+        @Column(displayName = "Entity ID",
+                description = "Unique identifier for this endpoint entity (format: endpoint:{className}#{methodSignature}).")
+        String entityId;
+
         @Column(displayName = "Source path",
                 description = "The path to the source file containing the endpoint.")
         String sourcePath;
@@ -37,10 +41,6 @@ public class ServiceEndpoints extends DataTable<ServiceEndpoints.Row> {
         @Column(displayName = "Service class",
                 description = "The fully qualified name of the controller or resource class.")
         String serviceClass;
-
-        @Column(displayName = "Service name",
-                description = "A human-readable name for the service derived from the class name.")
-        String serviceName;
 
         @Column(displayName = "Method name",
                 description = "The name of the endpoint method.")

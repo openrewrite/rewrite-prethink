@@ -30,6 +30,10 @@ public class ExternalServiceCalls extends DataTable<ExternalServiceCalls.Row> {
 
     @Value
     public static class Row {
+        @Column(displayName = "Entity ID",
+                description = "Unique identifier for this external service entity (format: external:{className}).")
+        String entityId;
+
         @Column(displayName = "Source path",
                 description = "The path to the source file containing the external service call.")
         String sourcePath;

@@ -30,6 +30,10 @@ public class DatabaseConnections extends DataTable<DatabaseConnections.Row> {
 
     @Value
     public static class Row {
+        @Column(displayName = "Entity ID",
+                description = "Unique identifier for this database entity (format: repository:{className} or entity:{className}).")
+        String entityId;
+
         @Column(displayName = "Source path",
                 description = "The path to the source file containing the database access.")
         String sourcePath;
