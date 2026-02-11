@@ -88,6 +88,62 @@ class UpdateAgentConfigTest implements RewriteTest {
     }
 
     @Test
+    void addsContextSectionToCopilotInstructions() {
+        rewriteRun(
+            spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md")).expectedCyclesThatMakeChanges(1),
+            // Context markdown file (scanner needs to find it to extract metadata)
+            text(
+                //language=Markdown
+                """
+                  # Test Coverage
+                  
+                  ## Maps test methods to implementation methods they verify
+                  
+                  This context maps each test method to the implementation methods it calls.
+                  
+                  ## Data Tables
+                  
+                  ### Test Mapping
+                  
+                  **File:** [`test-mapping.csv`](test-mapping.csv)
+                  """,
+                spec -> spec.path(".moderne/context/test-coverage.md")
+            ),
+            // CLAUDE.md file to be updated
+            text(
+                //language=Markdown
+                """
+                  # Project Documentation
+                  
+                  This is my project.
+                  """,
+                spec -> spec.path(".github/copilot-instructions.md").after(after -> {
+                    // Check section markers
+                    assertThat(after).contains("<!-- prethink-context -->");
+                    assertThat(after).contains("<!-- /prethink-context -->");
+
+                    // Check section content
+                    assertThat(after).contains("## Moderne Prethink Context");
+                    assertThat(after).contains("Moderne Prethink");
+
+                    // Check context table
+                    assertThat(after).contains("| Test Coverage |");
+                    assertThat(after).contains("test-coverage.md");
+
+                    // Check for template content (agent instructions)
+                    assertThat(after).contains("IMPORTANT: Before exploring source code");
+                    assertThat(after).contains("### Usage Pattern");
+
+                    // Verify original content preserved
+                    assertThat(after).contains("# Project Documentation");
+                    assertThat(after).contains("This is my project.");
+                    return after;
+                  })
+            )
+        );
+    }
+
+    @Test
     void updatesMultipleContextFiles() {
         rewriteRun(
             spec -> spec.expectedCyclesThatMakeChanges(1),

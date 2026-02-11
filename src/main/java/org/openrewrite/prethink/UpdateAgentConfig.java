@@ -29,12 +29,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static org.openrewrite.PathUtils.separatorsToSystem;
+import static org.openrewrite.PathUtils.separatorsToUnix;
 
 /**
  * Recipe that updates coding agent configuration files (CLAUDE.md, .cursorrules, etc.)
@@ -67,16 +69,10 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     @Nullable
     String targetConfigFile;
 
-    @Override
-    public String getDisplayName() {
-        return "Update agent configuration files";
-    }
+    String displayName = "Update agent configuration files";
 
-    @Override
-    public String getDescription() {
-        return "Update coding agent configuration files (CLAUDE.md, .cursorrules, etc.) " +
+    String description = "Update coding agent configuration files (CLAUDE.md, .cursorrules, etc.) " +
                "to include references to Moderne Prethink context files in .moderne/context/.";
-    }
 
     @Value
     public static class Accumulator {
@@ -109,7 +105,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                     String path = sf.getSourcePath().toString();
 
                     // Track context markdown files and extract their info
-                    if (path.startsWith(".moderne/context/") && path.endsWith(".md")) {
+                    if (path.startsWith(separatorsToSystem(".moderne/context/")) && path.endsWith(".md")) {
                         if (sf instanceof PlainText) {
                             PlainText pt = (PlainText) sf;
                             ContextEntry entry = parseContextMarkdown(pt.getText(), path);
@@ -121,8 +117,8 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
 
                     // Track agent config files
                     String fileName = sf.getSourcePath().getFileName().toString();
-                    if (AGENT_CONFIG_FILES.contains(fileName) ||
-                        AGENT_CONFIG_FILES.stream().anyMatch(path::endsWith)) {
+                    if (AGENT_CONFIG_FILES.contains(separatorsToUnix(fileName)) ||
+                        AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith)) {
                         acc.getFoundConfigFiles().add(path);
                     }
                 }
@@ -140,7 +136,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         for (String line : lines) {
             if (line.startsWith("# ") && displayName == null) {
                 displayName = line.substring(2).trim();
-            } else if (line.startsWith("## ") && shortDescription == null && displayName != null) {
+            } else if (line.startsWith("## ") && displayName != null) {
                 shortDescription = line.substring(3).trim();
                 break;
             }
@@ -172,7 +168,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
 
         // If no config files exist and we have a target, create it
         if (acc.getFoundConfigFiles().isEmpty()) {
-            String target = targetConfigFile != null ? targetConfigFile : "CLAUDE.md";
+            String target = targetConfigFile != null ? separatorsToSystem(targetConfigFile) : "CLAUDE.md";
             PlainText newConfig = PlainText.builder()
                     .id(Tree.randomId())
                     .sourcePath(Paths.get(target))
@@ -192,18 +188,19 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             public PlainText visitText(PlainText text, ExecutionContext ctx) {
                 String path = text.getSourcePath().toString();
                 String fileName = text.getSourcePath().getFileName().toString();
+                String systemTargetConfigFile = targetConfigFile == null ? null : separatorsToSystem(targetConfigFile);
 
                 // Check if this is a config file we should update
-                boolean isConfigFile = AGENT_CONFIG_FILES.contains(fileName) ||
-                        AGENT_CONFIG_FILES.stream().anyMatch(path::endsWith);
+                boolean isConfigFile = AGENT_CONFIG_FILES.contains(separatorsToUnix(fileName)) ||
+                        AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith);
 
                 if (!isConfigFile) {
                     return text;
                 }
 
                 // Skip if targeting a specific file and this isn't it
-                if (targetConfigFile != null && !path.equals(targetConfigFile) &&
-                    !fileName.equals(targetConfigFile)) {
+                if (systemTargetConfigFile != null && !path.equals(systemTargetConfigFile) &&
+                    !fileName.equals(systemTargetConfigFile)) {
                     return text;
                 }
 
