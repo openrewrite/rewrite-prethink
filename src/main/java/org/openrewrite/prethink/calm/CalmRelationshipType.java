@@ -15,26 +15,42 @@
  */
 package org.openrewrite.prethink.calm;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Value;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
 /**
- * A node in a CALM architecture document.
+ * The relationship-type object in a CALM relationship.
+ * Exactly one of composed-of, connects, or interacts should be non-null.
  */
 @Value
-@JsonPropertyOrder({"unique-id", "node-type", "name", "description", "interfaces"})
-public class CalmNode {
-    @JsonProperty("unique-id")
-    String uniqueId;
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class CalmRelationshipType {
+    @JsonProperty("composed-of")
+    @Nullable ComposedOf composedOf;
 
-    @JsonProperty("node-type")
-    String nodeType;
+    @Nullable Connects connects;
 
-    String name;
-    String description;
-    @Nullable List<CalmInterface> interfaces;
+    @Nullable Interacts interacts;
+
+    @Value
+    public static class ComposedOf {
+        String container;
+        List<String> nodes;
+    }
+
+    @Value
+    public static class Connects {
+        CalmNodeInterface source;
+        CalmNodeInterface destination;
+    }
+
+    @Value
+    public static class Interacts {
+        String actor;
+        List<String> nodes;
+    }
 }

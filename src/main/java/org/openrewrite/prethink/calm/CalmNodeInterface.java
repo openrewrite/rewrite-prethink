@@ -15,14 +15,19 @@
  */
 package org.openrewrite.prethink.calm;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Value;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
+
 /**
- * The source endpoint of a CALM relationship.
+ * A node-interface reference in a CALM relationship, identifying a node
+ * and optionally its interfaces.
  */
 @Value
-public class CalmEndpoint {
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class CalmNodeInterface {
     String node;
-    @Nullable String interfaceId;
+    @Nullable List<String> interfaces;
 }

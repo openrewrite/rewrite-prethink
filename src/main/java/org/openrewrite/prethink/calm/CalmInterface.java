@@ -15,14 +15,18 @@
  */
 package org.openrewrite.prethink.calm;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Value;
 
 /**
- * An interface exposed by a CALM node.
+ * An interface exposed by a CALM node (port-interface type).
  */
 @Value
+@JsonPropertyOrder({"unique-id", "port"})
 public class CalmInterface {
+    @JsonProperty("unique-id")
     String uniqueId;
-    String protocol;
+
     int port;
 }
