@@ -112,13 +112,12 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                 """
                 {
                   "nodes" : [ {
-                    "uniqueId" : "greeting-controller",
-                    "nodeType" : "service",
+                    "unique-id" : "greeting-controller",
+                    "node-type" : "service",
                     "name" : "GreetingController",
                     "description" : "REST API with endpoints: GET /greeting",
                     "interfaces" : [ {
-                      "uniqueId" : "greeting-controller-api",
-                      "protocol" : "HTTP",
+                      "unique-id" : "greeting-controller-api",
                       "port" : 8080
                     } ]
                   } ],
@@ -153,7 +152,11 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                         // Verify CALM file was created with expected content
                         org.assertj.core.api.Assertions.assertThat(content)
                             .contains("greeting-controller")
-                            .contains("GET /greeting");
+                            .contains("GET /greeting")
+                            .contains("unique-id")
+                            .contains("node-type")
+                            .doesNotContain("uniqueId")
+                            .doesNotContain("nodeType");
                         return content;
                     })
             )

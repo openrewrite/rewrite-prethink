@@ -245,6 +245,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
     private class CalmBuilder {
         private final List<CalmNode> nodes = new ArrayList<>();
         private final List<CalmRelationship> relationships = new ArrayList<>();
+        private final Set<String> seenRelationshipIds = new HashSet<>();
         private final Map<String, String> serviceClassToId = new HashMap<>();
         private final Map<String, String> repositoryClassToNodeId = new HashMap<>(); // repositoryClass -> nodeId
         private final Map<String, String> externalClientClassToNodeId = new HashMap<>(); // clientClass -> nodeId
@@ -321,6 +322,12 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
         }
 
+        private void addRelationship(CalmRelationship relationship) {
+            if (seenRelationshipIds.add(relationship.getUniqueId())) {
+                relationships.add(relationship);
+            }
+        }
+
         void addSystemNode() {
             if (projectMetadata.isEmpty()) {
                 return;
@@ -353,7 +360,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 String nodeId = toKebabCase(simpleName);
                 serviceClassToId.put(serviceClass, nodeId);
 
-                List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverProtocol, serverPort));
+                List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverPort));
                 String description = buildServiceDescription(serviceClass, classEndpoints);
 
                 nodes.add(new CalmNode(nodeId, "service", simpleName, description, interfaces));
@@ -410,11 +417,13 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     "Web application client accessing the API from " + origins, null));
 
             String primaryServiceId = serviceNodeIds.get(0);
-            relationships.add(new CalmRelationship(
+            addRelationship(new CalmRelationship(
                     webClientNodeId + "-interacts-" + primaryServiceId,
-                    "interacts",
-                    new CalmEndpoint(webClientNodeId, null),
-                    new CalmDestination(primaryServiceId, primaryServiceId + "-api"),
+                    new CalmRelationshipType(
+                            null,
+                            null,
+                            new CalmRelationshipType.Interacts(webClientNodeId, Collections.singletonList(primaryServiceId))
+                    ),
                     serverProtocol
             ));
         }
@@ -445,10 +454,17 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     serviceId = findServiceInSamePackage(db.getEntityClass());
                 }
                 if (serviceId != null) {
-                    relationships.add(new CalmRelationship(
-                            serviceId + "-to-" + nodeId, "connects",
-                            new CalmEndpoint(serviceId, null),
-                            new CalmDestination(nodeId, "jdbc"), "JDBC"
+                    addRelationship(new CalmRelationship(
+                            serviceId + "-to-" + nodeId,
+                            new CalmRelationshipType(
+                                    null,
+                                    new CalmRelationshipType.Connects(
+                                            new CalmNodeInterface(serviceId, null),
+                                            new CalmNodeInterface(nodeId, null)
+                                    ),
+                                    null
+                            ),
+                            "JDBC"
                     ));
                 }
             }
@@ -477,10 +493,17 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 }
                 if (callerServiceId != null) {
                     String protocol = ext.getProtocol() != null ? ext.getProtocol() : "HTTPS";
-                    relationships.add(new CalmRelationship(
-                            callerServiceId + "-to-" + nodeId, "connects",
-                            new CalmEndpoint(callerServiceId, null),
-                            new CalmDestination(nodeId, "api"), protocol
+                    addRelationship(new CalmRelationship(
+                            callerServiceId + "-to-" + nodeId,
+                            new CalmRelationshipType(
+                                    null,
+                                    new CalmRelationshipType.Connects(
+                                            new CalmNodeInterface(callerServiceId, null),
+                                            new CalmNodeInterface(nodeId, null)
+                                    ),
+                                    null
+                            ),
+                            protocol
                     ));
                 }
             }
@@ -510,16 +533,30 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     String protocol = msg.getMessagingType().contains("Kafka") ? "TCP" : "AMQP";
 
                     if (msg.getRole().equals("producer")) {
-                        relationships.add(new CalmRelationship(
-                                serviceId + "-publishes-to-" + msgNodeId, "connects",
-                                new CalmEndpoint(serviceId, null),
-                                new CalmDestination(msgNodeId, null), protocol
+                        addRelationship(new CalmRelationship(
+                                serviceId + "-publishes-to-" + msgNodeId,
+                                new CalmRelationshipType(
+                                        null,
+                                        new CalmRelationshipType.Connects(
+                                                new CalmNodeInterface(serviceId, null),
+                                                new CalmNodeInterface(msgNodeId, null)
+                                        ),
+                                        null
+                                ),
+                                protocol
                         ));
                     } else {
-                        relationships.add(new CalmRelationship(
-                                msgNodeId + "-consumed-by-" + serviceId, "connects",
-                                new CalmEndpoint(msgNodeId, null),
-                                new CalmDestination(serviceId, null), protocol
+                        addRelationship(new CalmRelationship(
+                                msgNodeId + "-consumed-by-" + serviceId,
+                                new CalmRelationshipType(
+                                        null,
+                                        new CalmRelationshipType.Connects(
+                                                new CalmNodeInterface(msgNodeId, null),
+                                                new CalmNodeInterface(serviceId, null)
+                                        ),
+                                        null
+                                ),
+                                protocol
                         ));
                     }
                 }
@@ -528,7 +565,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
         void addMethodCallRelationships(List<CalmRelationships.Row> methodCalls) {
             // Track unique relationships to avoid duplicates
-            Set<String> seenRelationships = new HashSet<>();
+            Set<String> seenMethodRelationships = new HashSet<>();
 
             for (CalmRelationships.Row call : methodCalls) {
                 // Look up entity IDs from the registry (CalmRelationships may have null IDs
@@ -539,16 +576,20 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 if (callerEntityId != null && calledEntityId != null && !callerEntityId.equals(calledEntityId)) {
                     // Create a unique key for this relationship
                     String relationshipKey = callerEntityId + "->" + calledEntityId;
-                    if (seenRelationships.add(relationshipKey)) {
+                    if (seenMethodRelationships.add(relationshipKey)) {
                         // Get node IDs for both entities
                         String fromNodeId = findNodeIdForEntityId(callerEntityId);
                         String toNodeId = findNodeIdForEntityId(calledEntityId);
 
                         if (fromNodeId != null && toNodeId != null) {
-                            relationships.add(new CalmRelationship(
-                                    fromNodeId + "-calls-" + toNodeId, "interacts",
-                                    new CalmEndpoint(fromNodeId, null),
-                                    new CalmDestination(toNodeId, null), null
+                            addRelationship(new CalmRelationship(
+                                    fromNodeId + "-calls-" + toNodeId,
+                                    new CalmRelationshipType(
+                                            null,
+                                            null,
+                                            new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(toNodeId))
+                                    ),
+                                    null
                             ));
                         }
                     }
@@ -564,11 +605,15 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                         // Check if we have a data asset node for this class
                         if (fromNodeId != null && hasDataAssetNode(dataNodeId)) {
                             String relationshipKey = callerEntityId + "->" + toClass;
-                            if (seenRelationships.add(relationshipKey)) {
-                                relationships.add(new CalmRelationship(
-                                        fromNodeId + "-uses-" + dataNodeId, "interacts",
-                                        new CalmEndpoint(fromNodeId, null),
-                                        new CalmDestination(dataNodeId, null), null
+                            if (seenMethodRelationships.add(relationshipKey)) {
+                                addRelationship(new CalmRelationship(
+                                        fromNodeId + "-uses-" + dataNodeId,
+                                        new CalmRelationshipType(
+                                                null,
+                                                null,
+                                                new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(dataNodeId))
+                                        ),
+                                        null
                                 ));
                             }
                         }
@@ -633,16 +678,18 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         }
 
         void addComposedOfRelationships() {
-            if (systemNodeId == null) {
+            if (systemNodeId == null || serviceNodeIds.isEmpty()) {
                 return;
             }
-            for (String serviceId : serviceNodeIds) {
-                relationships.add(new CalmRelationship(
-                        systemNodeId + "-contains-" + serviceId, "composed-of",
-                        new CalmEndpoint(systemNodeId, null),
-                        new CalmDestination(serviceId, null), null
-                ));
-            }
+            addRelationship(new CalmRelationship(
+                    systemNodeId + "-composed-of-services",
+                    new CalmRelationshipType(
+                            new CalmRelationshipType.ComposedOf(systemNodeId, new ArrayList<>(serviceNodeIds)),
+                            null,
+                            null
+                    ),
+                    null
+            ));
         }
 
         private @Nullable String findServiceForClass(@Nullable String className) {
