@@ -15,16 +15,24 @@
  */
 package org.openrewrite.prethink.calm;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Value;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A relationship between nodes in a CALM architecture document.
  */
 @Value
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({"unique-id", "relationship-type", "protocol"})
 public class CalmRelationship {
+    @JsonProperty("unique-id")
     String uniqueId;
-    String relationshipType;
-    CalmEndpoint source;
-    CalmDestination destination;
-    String protocol;
+
+    @JsonProperty("relationship-type")
+    CalmRelationshipType relationshipType;
+
+    @Nullable String protocol;
 }
