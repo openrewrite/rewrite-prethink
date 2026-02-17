@@ -17,6 +17,8 @@ package org.openrewrite.prethink;
 
 import lombok.EqualsAndHashCode;
 import lombok.Value;
+import org.jspecify.annotations.Nullable;
+import org.openrewrite.Option;
 import org.openrewrite.Recipe;
 import org.openrewrite.RecipeList;
 import org.openrewrite.prethink.calm.GenerateCalmArchitecture;
@@ -42,9 +44,16 @@ import java.util.Arrays;
  * For a sample complete solution, refer to io.moderne.prethink.UpdatePrethinkContextStarter or
  * io.moderne.prethink.UpdatePrethinkContextNoAiStarter.
  */
-@Value
 @EqualsAndHashCode(callSuper = false)
+@Value
 public class UpdatePrethinkContext extends Recipe {
+
+    @Option(displayName = "Target config file",
+            description = "Which agent config file to update. If not specified, updates all found files.",
+            required = false,
+            example = "CLAUDE.md")
+    @Nullable
+    String targetConfigFile;
 
     @Override
     public String getDisplayName() {
@@ -85,7 +94,7 @@ public class UpdatePrethinkContext extends Recipe {
                 ))
 
                 // Update agent config files
-                .recipe(new UpdateAgentConfig(null))
+                .recipe(new UpdateAgentConfig(targetConfigFile))
 
                 // Update .gitignore to allow committing context files
                 .recipe(new UpdateGitignore());
