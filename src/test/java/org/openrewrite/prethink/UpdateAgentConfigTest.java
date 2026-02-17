@@ -34,7 +34,6 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void addsContextSectionToClaudeMd() {
         rewriteRun(
-            spec -> spec.expectedCyclesThatMakeChanges(1),
             // Context markdown file (scanner needs to find it to extract metadata)
             text(
                 //language=Markdown
@@ -90,7 +89,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void addsContextSectionToCopilotInstructions() {
         rewriteRun(
-            spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md")).expectedCyclesThatMakeChanges(1),
+            spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md")),
             // Context markdown file (scanner needs to find it to extract metadata)
             text(
                 //language=Markdown
@@ -146,7 +145,6 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void updatesMultipleContextFiles() {
         rewriteRun(
-            spec -> spec.expectedCyclesThatMakeChanges(1),
             // Multiple context markdown files
             text(
                 //language=Markdown
@@ -197,7 +195,6 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void replacesExistingContextSection() {
         rewriteRun(
-            spec -> spec.expectedCyclesThatMakeChanges(1),
             // New context file
             text(
                 //language=Markdown
