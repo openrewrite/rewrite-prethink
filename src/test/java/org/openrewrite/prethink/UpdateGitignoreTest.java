@@ -172,9 +172,10 @@ class UpdateGitignoreTest implements RewriteTest {
     void updateGitignoreContentNoModerne() {
         String input = "build/\n.idea/\n";
         String result = UpdateGitignore.updateGitignoreContent(input);
-        assertThat(result).contains(".moderne/*");
-        assertThat(result).contains("!.moderne/context/");
-        assertThat(result).contains("# Moderne CLI");
+        assertThat(result)
+                .contains(".moderne/*")
+                .contains("!.moderne/context/")
+                .contains("# Moderne CLI");
     }
 
     @Test

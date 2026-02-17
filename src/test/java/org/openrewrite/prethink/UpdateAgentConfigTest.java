@@ -60,28 +60,24 @@ class UpdateAgentConfigTest implements RewriteTest {
 
                 This is my project.
                 """,
-                spec -> spec.path("CLAUDE.md").after(after -> {
-                    // Check section markers
-                    assertThat(after).contains("<!-- prethink-context -->");
-                    assertThat(after).contains("<!-- /prethink-context -->");
-
-                    // Check section content
-                    assertThat(after).contains("## Moderne Prethink Context");
-                    assertThat(after).contains("Moderne Prethink");
-
-                    // Check context table
-                    assertThat(after).contains("| Test Coverage |");
-                    assertThat(after).contains("test-coverage.md");
-
-                    // Check for template content (agent instructions)
-                    assertThat(after).contains("IMPORTANT: Before exploring source code");
-                    assertThat(after).contains("### Usage Pattern");
-
-                    // Verify original content preserved
-                    assertThat(after).contains("# Project Documentation");
-                    assertThat(after).contains("This is my project.");
-                    return after;
-                })
+                spec -> spec.path("CLAUDE.md").after(after ->
+                    assertThat(after)
+                        // Check section markers
+                        .contains("<!-- prethink-context -->")
+                        .contains("<!-- /prethink-context -->")
+                        // Check section content
+                        .contains("## Moderne Prethink Context")
+                        .contains("Moderne Prethink")
+                        // Check context table
+                        .contains("| Test Coverage |")
+                        .contains("test-coverage.md")
+                        // Check for template content (agent instructions)
+                        .contains("IMPORTANT: Before exploring source code")
+                        .contains("### Usage Pattern")
+                        // Verify original content preserved
+                        .contains("# Project Documentation")
+                        .contains("This is my project.")
+                        .actual())
             )
         );
     }
@@ -116,28 +112,24 @@ class UpdateAgentConfigTest implements RewriteTest {
                   
                   This is my project.
                   """,
-                spec -> spec.path(".github/copilot-instructions.md").after(after -> {
-                    // Check section markers
-                    assertThat(after).contains("<!-- prethink-context -->");
-                    assertThat(after).contains("<!-- /prethink-context -->");
-
-                    // Check section content
-                    assertThat(after).contains("## Moderne Prethink Context");
-                    assertThat(after).contains("Moderne Prethink");
-
-                    // Check context table
-                    assertThat(after).contains("| Test Coverage |");
-                    assertThat(after).contains("test-coverage.md");
-
-                    // Check for template content (agent instructions)
-                    assertThat(after).contains("IMPORTANT: Before exploring source code");
-                    assertThat(after).contains("### Usage Pattern");
-
-                    // Verify original content preserved
-                    assertThat(after).contains("# Project Documentation");
-                    assertThat(after).contains("This is my project.");
-                    return after;
-                  })
+                spec -> spec.path(".github/copilot-instructions.md").after(after ->
+                    assertThat(after)
+                        // Check section markers
+                        .contains("<!-- prethink-context -->")
+                        .contains("<!-- /prethink-context -->")
+                        // Check section content
+                        .contains("## Moderne Prethink Context")
+                        .contains("Moderne Prethink")
+                        // Check context table
+                        .contains("| Test Coverage |")
+                        .contains("test-coverage.md")
+                        // Check for template content (agent instructions)
+                        .contains("IMPORTANT: Before exploring source code")
+                        .contains("### Usage Pattern")
+                        // Verify original content preserved
+                        .contains("# Project Documentation")
+                        .contains("This is my project.")
+                        .actual())
             )
         );
     }
@@ -176,18 +168,17 @@ class UpdateAgentConfigTest implements RewriteTest {
 
                 This is my project.
                 """,
-                spec -> spec.path("CLAUDE.md").after(after -> {
-                    // Check both context entries appear in table
-                    assertThat(after).contains("| Code Comprehension |");
-                    assertThat(after).contains("| Test Coverage |");
-                    assertThat(after).contains("code-comprehension.md");
-                    assertThat(after).contains("test-coverage.md");
-
-                    // Check section structure
-                    assertThat(after).contains("<!-- prethink-context -->");
-                    assertThat(after).contains("<!-- /prethink-context -->");
-                    return after;
-                })
+                spec -> spec.path("CLAUDE.md").after(after ->
+                    assertThat(after)
+                        // Check both context entries appear in table
+                        .contains("| Code Comprehension |")
+                        .contains("| Test Coverage |")
+                        .contains("code-comprehension.md")
+                        .contains("test-coverage.md")
+                        // Check section structure
+                        .contains("<!-- prethink-context -->")
+                        .contains("<!-- /prethink-context -->")
+                        .actual())
             )
         );
     }
@@ -227,23 +218,20 @@ class UpdateAgentConfigTest implements RewriteTest {
 
                 ## Other Section
                 """,
-                spec -> spec.path("CLAUDE.md").after(after -> {
-                    // New context should be present
-                    assertThat(after).contains("| Test Coverage |");
-                    assertThat(after).contains("test-coverage.md");
-
-                    // Old context should be gone
-                    assertThat(after).doesNotContain("Old Context");
-                    assertThat(after).doesNotContain("old-context.md");
-
-                    // Other section should still be there
-                    assertThat(after).contains("## Other Section");
-
-                    // Verify section structure
-                    assertThat(after).contains("<!-- prethink-context -->");
-                    assertThat(after).contains("<!-- /prethink-context -->");
-                    return after;
-                })
+                spec -> spec.path("CLAUDE.md").after(after ->
+                    assertThat(after)
+                        // New context should be present
+                        .contains("| Test Coverage |")
+                        .contains("test-coverage.md")
+                        // Old context should be gone
+                        .doesNotContain("Old Context")
+                        .doesNotContain("old-context.md")
+                        // Other section should still be there
+                        .contains("## Other Section")
+                        // Verify section structure
+                        .contains("<!-- prethink-context -->")
+                        .contains("<!-- /prethink-context -->")
+                        .actual())
             )
         );
     }

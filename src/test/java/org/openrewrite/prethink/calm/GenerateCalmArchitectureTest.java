@@ -24,6 +24,7 @@ import org.openrewrite.test.RewriteTest;
 import java.util.Map;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
 
 class GenerateCalmArchitectureTest implements RewriteTest {
@@ -149,13 +150,12 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                 null,
                 spec -> spec
                     .path(".moderne/context/calm-architecture.json")
-                    .after(content -> {
-                        // Verify CALM file was created with expected content
-                        org.assertj.core.api.Assertions.assertThat(content)
+                    // Verify CALM file was created with expected content
+                    .after(content ->
+                        assertThat(content)
                             .contains("greeting-controller")
-                            .contains("GET /greeting");
-                        return content;
-                    })
+                            .contains("GET /greeting")
+                            .actual())
             )
         );
     }
