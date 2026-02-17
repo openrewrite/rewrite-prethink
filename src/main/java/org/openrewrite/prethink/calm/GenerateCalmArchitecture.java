@@ -28,6 +28,7 @@ import org.openrewrite.prethink.table.MessagingConnections;
 import org.openrewrite.prethink.table.ProjectMetadata;
 import org.openrewrite.prethink.table.SecurityConfiguration;
 import org.openrewrite.prethink.table.ServerConfiguration;
+import org.openrewrite.prethink.table.ServiceComponents;
 import org.openrewrite.prethink.table.ServiceEndpoints;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
@@ -242,16 +243,31 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         }
     }
 
+    private static final Set<String> LEAF_PACKAGE_SEGMENTS = new HashSet<>(Arrays.asList(
+            "controller", "rest", "api", "web",
+            "service", "services",
+            "repository", "repositories", "dao",
+            "model", "domain", "entity", "entities",
+            "dto", "dtos",
+            "config", "configuration",
+            "client", "clients", "feign",
+            "messaging", "listener", "listeners",
+            "producer", "consumer", "event", "events"
+    ));
+
     private class CalmBuilder {
         private final List<CalmNode> nodes = new ArrayList<>();
         private final List<CalmRelationship> relationships = new ArrayList<>();
+        private final Set<String> seenRelationshipIds = new HashSet<>();
+        private final Set<String> usedNodeIds = new HashSet<>();
         private final Map<String, String> serviceClassToId = new HashMap<>();
-        private final Map<String, String> repositoryClassToNodeId = new HashMap<>(); // repositoryClass -> nodeId
-        private final Map<String, String> externalClientClassToNodeId = new HashMap<>(); // clientClass -> nodeId
-        private final Map<String, String> messagingClassToNodeId = new HashMap<>(); // className -> nodeId
+        private final Map<String, String> repositoryClassToNodeId = new HashMap<>();
+        private final Map<String, String> externalClientClassToNodeId = new HashMap<>();
+        private final Map<String, String> messagingClassToNodeId = new HashMap<>();
         private final List<String> serviceNodeIds = new ArrayList<>();
         private final Map<String, String> aiDescriptionsByClass = new HashMap<>();
-        private final Map<String, String> classToEntityId = new HashMap<>(); // className -> entityId
+        private final Map<String, String> classToEntityId = new HashMap<>();
+        private final Map<String, DataAssets.Row> dataAssetById = new LinkedHashMap<>();
         private final List<ServerConfiguration.Row> serverConfigs;
         private final List<DataAssets.Row> dataAssets;
         private final List<ProjectMetadata.Row> projectMetadata;
@@ -282,6 +298,13 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
             // Build class-to-entityId registry from all entity discovery tables
             buildClassToEntityRegistry(allTables);
+
+            // Register @Service/@Component classes in the entity registry for method-call resolution.
+            // Do NOT add to serviceClassToId — that's for controller classes that have actual nodes.
+            List<ServiceComponents.Row> serviceComponents = getTableRows(allTables, ServiceComponents.class);
+            for (ServiceComponents.Row row : serviceComponents) {
+                classToEntityId.put(row.getClassName(), row.getEntityId());
+            }
         }
 
         private void buildClassToEntityRegistry(Map<DataTable<?>, List<?>> allTables) {
@@ -321,6 +344,18 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
         }
 
+        private void addRelationship(CalmRelationship relationship) {
+            if (seenRelationshipIds.add(relationship.getUniqueId())) {
+                relationships.add(relationship);
+            }
+        }
+
+        private void addNode(CalmNode node) {
+            if (usedNodeIds.add(node.getUniqueId())) {
+                nodes.add(node);
+            }
+        }
+
         void addSystemNode() {
             if (projectMetadata.isEmpty()) {
                 return;
@@ -332,7 +367,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             String systemDescription = project.getDescription() != null ? project.getDescription() :
                     "System containing " + project.getArtifactId() + " services";
 
-            nodes.add(new CalmNode(systemNodeId, "system", systemName, systemDescription, null));
+            addNode(new CalmNode(systemNodeId, "system", systemName, systemDescription, null));
         }
 
         void addServiceNodes(List<ServiceEndpoints.Row> endpoints) {
@@ -353,10 +388,10 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 String nodeId = toKebabCase(simpleName);
                 serviceClassToId.put(serviceClass, nodeId);
 
-                List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverProtocol, serverPort));
+                List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverPort));
                 String description = buildServiceDescription(serviceClass, classEndpoints);
 
-                nodes.add(new CalmNode(nodeId, "service", simpleName, description, interfaces));
+                addNode(new CalmNode(nodeId, "service", simpleName, description, interfaces));
                 serviceNodeIds.add(nodeId);
             }
         }
@@ -380,15 +415,9 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         }
 
         void addDataAssetNodes() {
-            Set<String> seen = new HashSet<>();
             for (DataAssets.Row asset : dataAssets) {
                 String nodeId = toKebabCase(asset.getSimpleName()) + "-data";
-                if (!seen.add(nodeId)) {
-                    continue;
-                }
-                String description = asset.getDescription() != null ? asset.getDescription() :
-                        asset.getAssetType() + " " + asset.getSimpleName();
-                nodes.add(new CalmNode(nodeId, "data-asset", asset.getSimpleName(), description, null));
+                dataAssetById.putIfAbsent(nodeId, asset);
             }
         }
 
@@ -406,15 +435,17 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     .findFirst()
                     .orElse("configured origins");
 
-            nodes.add(new CalmNode(webClientNodeId, "webclient", "Web Client",
+            addNode(new CalmNode(webClientNodeId, "webclient", "Web Client",
                     "Web application client accessing the API from " + origins, null));
 
             String primaryServiceId = serviceNodeIds.get(0);
-            relationships.add(new CalmRelationship(
+            addRelationship(new CalmRelationship(
                     webClientNodeId + "-interacts-" + primaryServiceId,
-                    "interacts",
-                    new CalmEndpoint(webClientNodeId, null),
-                    new CalmDestination(primaryServiceId, primaryServiceId + "-api"),
+                    new CalmRelationshipType(
+                            null,
+                            null,
+                            new CalmRelationshipType.Interacts(webClientNodeId, Collections.singletonList(primaryServiceId))
+                    ),
                     serverProtocol
             ));
         }
@@ -437,18 +468,28 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 }
 
                 String dbType = db.getDatabaseType() != null ? db.getDatabaseType() : "SQL";
-                nodes.add(new CalmNode(nodeId, "database", db.getEntityName() + " Store",
+                addNode(new CalmNode(nodeId, "database", db.getEntityName() + " Store",
                         dbType + " database for " + db.getEntityName() + " data", null));
 
                 String serviceId = findServiceForClass(db.getRepositoryClass());
+                if (serviceId == null) {
+                    serviceId = findServiceInSamePackage(db.getRepositoryClass());
+                }
                 if (serviceId == null && db.getEntityClass() != null) {
                     serviceId = findServiceInSamePackage(db.getEntityClass());
                 }
                 if (serviceId != null) {
-                    relationships.add(new CalmRelationship(
-                            serviceId + "-to-" + nodeId, "connects",
-                            new CalmEndpoint(serviceId, null),
-                            new CalmDestination(nodeId, "jdbc"), "JDBC"
+                    addRelationship(new CalmRelationship(
+                            serviceId + "-to-" + nodeId,
+                            new CalmRelationshipType(
+                                    null,
+                                    new CalmRelationshipType.Connects(
+                                            new CalmNodeInterface(serviceId, null),
+                                            new CalmNodeInterface(nodeId, null)
+                                    ),
+                                    null
+                            ),
+                            "JDBC"
                     ));
                 }
             }
@@ -468,7 +509,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     continue;
                 }
 
-                nodes.add(new CalmNode(nodeId, "service", ext.getTargetService(),
+                addNode(new CalmNode(nodeId, "service", ext.getTargetService(),
                         "External " + ext.getClientType() + " service", null));
 
                 String callerServiceId = findServiceForClass(ext.getClientClass());
@@ -477,10 +518,17 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 }
                 if (callerServiceId != null) {
                     String protocol = ext.getProtocol() != null ? ext.getProtocol() : "HTTPS";
-                    relationships.add(new CalmRelationship(
-                            callerServiceId + "-to-" + nodeId, "connects",
-                            new CalmEndpoint(callerServiceId, null),
-                            new CalmDestination(nodeId, "api"), protocol
+                    addRelationship(new CalmRelationship(
+                            callerServiceId + "-to-" + nodeId,
+                            new CalmRelationshipType(
+                                    null,
+                                    new CalmRelationshipType.Connects(
+                                            new CalmNodeInterface(callerServiceId, null),
+                                            new CalmNodeInterface(nodeId, null)
+                                    ),
+                                    null
+                            ),
+                            protocol
                     ));
                 }
             }
@@ -492,7 +540,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 String nodeId = toKebabCase(msg.getDestination()) + "-" + msg.getMessagingType().toLowerCase().replace(" ", "-");
                 if (!destinationToNodeId.containsKey(msg.getDestination())) {
                     destinationToNodeId.put(msg.getDestination(), nodeId);
-                    nodes.add(new CalmNode(nodeId, "network", msg.getDestination(),
+                    addNode(new CalmNode(nodeId, "network", msg.getDestination(),
                             msg.getMessagingType() + " " + (msg.getRole().equals("consumer") ? "topic/queue" : "destination"), null));
                 }
 
@@ -510,16 +558,30 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     String protocol = msg.getMessagingType().contains("Kafka") ? "TCP" : "AMQP";
 
                     if (msg.getRole().equals("producer")) {
-                        relationships.add(new CalmRelationship(
-                                serviceId + "-publishes-to-" + msgNodeId, "connects",
-                                new CalmEndpoint(serviceId, null),
-                                new CalmDestination(msgNodeId, null), protocol
+                        addRelationship(new CalmRelationship(
+                                serviceId + "-publishes-to-" + msgNodeId,
+                                new CalmRelationshipType(
+                                        null,
+                                        new CalmRelationshipType.Connects(
+                                                new CalmNodeInterface(serviceId, null),
+                                                new CalmNodeInterface(msgNodeId, null)
+                                        ),
+                                        null
+                                ),
+                                protocol
                         ));
                     } else {
-                        relationships.add(new CalmRelationship(
-                                msgNodeId + "-consumed-by-" + serviceId, "connects",
-                                new CalmEndpoint(msgNodeId, null),
-                                new CalmDestination(serviceId, null), protocol
+                        addRelationship(new CalmRelationship(
+                                msgNodeId + "-consumed-by-" + serviceId,
+                                new CalmRelationshipType(
+                                        null,
+                                        new CalmRelationshipType.Connects(
+                                                new CalmNodeInterface(msgNodeId, null),
+                                                new CalmNodeInterface(serviceId, null)
+                                        ),
+                                        null
+                                ),
+                                protocol
                         ));
                     }
                 }
@@ -528,7 +590,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
         void addMethodCallRelationships(List<CalmRelationships.Row> methodCalls) {
             // Track unique relationships to avoid duplicates
-            Set<String> seenRelationships = new HashSet<>();
+            Set<String> seenMethodRelationships = new HashSet<>();
 
             for (CalmRelationships.Row call : methodCalls) {
                 // Look up entity IDs from the registry (CalmRelationships may have null IDs
@@ -539,16 +601,20 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 if (callerEntityId != null && calledEntityId != null && !callerEntityId.equals(calledEntityId)) {
                     // Create a unique key for this relationship
                     String relationshipKey = callerEntityId + "->" + calledEntityId;
-                    if (seenRelationships.add(relationshipKey)) {
+                    if (seenMethodRelationships.add(relationshipKey)) {
                         // Get node IDs for both entities
                         String fromNodeId = findNodeIdForEntityId(callerEntityId);
                         String toNodeId = findNodeIdForEntityId(calledEntityId);
 
                         if (fromNodeId != null && toNodeId != null) {
-                            relationships.add(new CalmRelationship(
-                                    fromNodeId + "-calls-" + toNodeId, "interacts",
-                                    new CalmEndpoint(fromNodeId, null),
-                                    new CalmDestination(toNodeId, null), null
+                            addRelationship(new CalmRelationship(
+                                    fromNodeId + "-calls-" + toNodeId,
+                                    new CalmRelationshipType(
+                                            null,
+                                            null,
+                                            new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(toNodeId))
+                                    ),
+                                    null
                             ));
                         }
                     }
@@ -564,11 +630,15 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                         // Check if we have a data asset node for this class
                         if (fromNodeId != null && hasDataAssetNode(dataNodeId)) {
                             String relationshipKey = callerEntityId + "->" + toClass;
-                            if (seenRelationships.add(relationshipKey)) {
-                                relationships.add(new CalmRelationship(
-                                        fromNodeId + "-uses-" + dataNodeId, "interacts",
-                                        new CalmEndpoint(fromNodeId, null),
-                                        new CalmDestination(dataNodeId, null), null
+                            if (seenMethodRelationships.add(relationshipKey)) {
+                                addRelationship(new CalmRelationship(
+                                        fromNodeId + "-uses-" + dataNodeId,
+                                        new CalmRelationshipType(
+                                                null,
+                                                null,
+                                                new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(dataNodeId))
+                                        ),
+                                        null
                                 ));
                             }
                         }
@@ -594,15 +664,12 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             } else if (entityId.startsWith("messaging:")) {
                 return messagingClassToNodeId.get(className);
             } else if (entityId.startsWith("service:")) {
-                // @Service/@Component classes - check if they have an endpoint nodeId
-                // or are associated with other nodes
+                // @Service/@Component classes — find a controller in the same base package
                 String nodeId = serviceClassToId.get(className);
                 if (nodeId != null) {
                     return nodeId;
                 }
-                // Fall back to generating a node ID from the class name
-                String simpleName = className.substring(className.lastIndexOf('.') + 1);
-                return toKebabCase(simpleName);
+                return findServiceInSamePackage(className);
             }
             return null;
         }
@@ -629,20 +696,22 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         }
 
         private boolean hasDataAssetNode(String nodeId) {
-            return nodes.stream().anyMatch(n -> n.getUniqueId().equals(nodeId));
+            return dataAssetById.containsKey(nodeId);
         }
 
         void addComposedOfRelationships() {
-            if (systemNodeId == null) {
+            if (systemNodeId == null || serviceNodeIds.isEmpty()) {
                 return;
             }
-            for (String serviceId : serviceNodeIds) {
-                relationships.add(new CalmRelationship(
-                        systemNodeId + "-contains-" + serviceId, "composed-of",
-                        new CalmEndpoint(systemNodeId, null),
-                        new CalmDestination(serviceId, null), null
-                ));
-            }
+            addRelationship(new CalmRelationship(
+                    systemNodeId + "-composed-of-services",
+                    new CalmRelationshipType(
+                            new CalmRelationshipType.ComposedOf(systemNodeId, new ArrayList<>(serviceNodeIds)),
+                            null,
+                            null
+                    ),
+                    null
+            ));
         }
 
         private @Nullable String findServiceForClass(@Nullable String className) {
@@ -653,19 +722,64 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             if (className == null) {
                 return null;
             }
-            String pkg = className.contains(".") ? className.substring(0, className.lastIndexOf('.')) : "";
+            String basePackage = getBasePackage(className);
             for (Map.Entry<String, String> entry : serviceClassToId.entrySet()) {
-                String serviceClass = entry.getKey();
-                String servicePkg = serviceClass.contains(".") ? serviceClass.substring(0, serviceClass.lastIndexOf('.')) : "";
-                if (servicePkg.equals(pkg) || servicePkg.startsWith(pkg) || pkg.startsWith(servicePkg)) {
+                String serviceBase = getBasePackage(entry.getKey());
+                if (serviceBase.equals(basePackage)) {
                     return entry.getValue();
                 }
             }
             return null;
         }
 
+        private String getBasePackage(String fqcn) {
+            String pkg = fqcn.contains(".") ? fqcn.substring(0, fqcn.lastIndexOf('.')) : "";
+            int lastDot = pkg.lastIndexOf('.');
+            if (lastDot > 0) {
+                String leaf = pkg.substring(lastDot + 1);
+                if (LEAF_PACKAGE_SEGMENTS.contains(leaf)) {
+                    return pkg.substring(0, lastDot);
+                }
+            }
+            return pkg;
+        }
+
         CalmDocument build() {
-            return new CalmDocument(CALM_SCHEMA, nodes, relationships);
+            // Collect all node IDs referenced by relationships
+            Set<String> referencedIds = new HashSet<>();
+            for (CalmRelationship rel : relationships) {
+                collectReferencedNodeIds(rel, referencedIds);
+            }
+
+            // Emit only data-asset nodes that are referenced by a relationship
+            List<CalmNode> allNodes = new ArrayList<>(nodes);
+            for (Map.Entry<String, DataAssets.Row> entry : dataAssetById.entrySet()) {
+                if (referencedIds.contains(entry.getKey())) {
+                    DataAssets.Row asset = entry.getValue();
+                    String description = asset.getDescription() != null ? asset.getDescription() :
+                            asset.getAssetType() + " " + asset.getSimpleName();
+                    allNodes.add(new CalmNode(entry.getKey(), "data-asset", asset.getSimpleName(),
+                            description, null));
+                }
+            }
+
+            return new CalmDocument(CALM_SCHEMA, allNodes, relationships);
+        }
+
+        private void collectReferencedNodeIds(CalmRelationship rel, Set<String> ids) {
+            CalmRelationshipType type = rel.getRelationshipType();
+            if (type.getConnects() != null) {
+                ids.add(type.getConnects().getSource().getNode());
+                ids.add(type.getConnects().getDestination().getNode());
+            }
+            if (type.getComposedOf() != null) {
+                ids.add(type.getComposedOf().getContainer());
+                ids.addAll(type.getComposedOf().getNodes());
+            }
+            if (type.getInteracts() != null) {
+                ids.add(type.getInteracts().getActor());
+                ids.addAll(type.getInteracts().getNodes());
+            }
         }
     }
 

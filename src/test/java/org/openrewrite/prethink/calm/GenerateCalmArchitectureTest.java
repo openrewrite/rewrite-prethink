@@ -17,6 +17,7 @@ package org.openrewrite.prethink.calm;
 
 import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
+import org.openrewrite.prethink.table.DatabaseConnections;
 import org.openrewrite.prethink.table.ServiceEndpoints;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
@@ -113,13 +114,12 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                 """
                 {
                   "nodes" : [ {
-                    "uniqueId" : "greeting-controller",
-                    "nodeType" : "service",
+                    "unique-id" : "greeting-controller",
+                    "node-type" : "service",
                     "name" : "GreetingController",
                     "description" : "REST API with endpoints: GET /greeting",
                     "interfaces" : [ {
-                      "uniqueId" : "greeting-controller-api",
-                      "protocol" : "HTTP",
+                      "unique-id" : "greeting-controller-api",
                       "port" : 8080
                     } ]
                   } ],
@@ -155,7 +155,136 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                         assertThat(content)
                             .contains("greeting-controller")
                             .contains("GET /greeting")
+                            .contains("unique-id")
+                            .contains("node-type")
+                            .doesNotContain("uniqueId")
+                            .doesNotContain("nodeType")
                             .actual())
+            )
+        );
+    }
+
+    /**
+     * A fake recipe that populates DatabaseConnections data table.
+     */
+    static class PopulateDatabaseConnections extends Recipe {
+        transient DatabaseConnections databaseConnections = new DatabaseConnections(this);
+
+        @Override
+        public String getDisplayName() {
+            return "Populate database connections";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Populates DatabaseConnections data table for testing.";
+        }
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<Tree, ExecutionContext>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile) {
+                        SourceFile sf = (SourceFile) tree;
+                        if (sf.getSourcePath().toString().endsWith("OrderRepository.java")) {
+                            databaseConnections.insertRow(ctx, new DatabaseConnections.Row(
+                                "repository:com.example.order.repository.OrderRepository",
+                                sf.getSourcePath().toString(),
+                                "Order",
+                                "com.example.order.model.Order",
+                                "com.example.order.repository.OrderRepository",
+                                "Spring Data",
+                                "SQL"
+                            ));
+                        }
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    /**
+     * A variant of PopulateServiceEndpoints that uses sibling packages.
+     */
+    static class PopulateServiceEndpointsInControllerPackage extends Recipe {
+        transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
+
+        @Override
+        public String getDisplayName() {
+            return "Populate service endpoints in controller package";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Populates ServiceEndpoints in a controller sub-package for sibling package testing.";
+        }
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<Tree, ExecutionContext>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile) {
+                        SourceFile sf = (SourceFile) tree;
+                        if (sf.getSourcePath().toString().endsWith("OrderController.java")) {
+                            serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
+                                "endpoint:com.example.order.controller.OrderController#createOrder(OrderDto)",
+                                sf.getSourcePath().toString(),
+                                "com.example.order.controller.OrderController",
+                                "createOrder",
+                                "POST",
+                                "/api/orders",
+                                null,
+                                null,
+                                "Spring",
+                                "com.example.order.controller.OrderController{name=createOrder,return=Order,parameters=[OrderDto]}"
+                            ));
+                        }
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    @Test
+    void connectsDatabaseToServiceViaSiblingPackage() {
+        // Controller in com.example.order.controller, Repository in com.example.order.repository
+        // Parent package matching should resolve both to com.example.order base
+        rewriteRun(
+            spec -> spec
+                .recipes(
+                    new PopulateServiceEndpointsInControllerPackage(),
+                    new PopulateDatabaseConnections(),
+                    new GenerateCalmArchitecture()
+                )
+                .cycles(3)
+                .expectedCyclesThatMakeChanges(3),
+            text(
+                "package com.example.order.controller;\npublic class OrderController {}",
+                spec -> spec.path("src/main/java/com/example/order/controller/OrderController.java")
+            ),
+            text(
+                "package com.example.order.repository;\npublic interface OrderRepository {}",
+                spec -> spec.path("src/main/java/com/example/order/repository/OrderRepository.java")
+            ),
+            text(
+                null,
+                spec -> spec
+                    .path(".moderne/context/calm-architecture.json")
+                    .after(content -> {
+                        org.assertj.core.api.Assertions.assertThat(content)
+                            // Service node exists
+                            .contains("order-controller")
+                            // Database node exists
+                            .contains("order-db")
+                            // Connects relationship was created via sibling package matching
+                            .contains("order-controller-to-order-db")
+                            .contains("\"connects\"");
+                        return content;
+                    })
             )
         );
     }
