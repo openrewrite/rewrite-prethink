@@ -186,12 +186,13 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
     @SuppressWarnings("unchecked")
     private <T> List<T> getTableRows(Map<DataTable<?>, List<?>> allTables, Class<? extends DataTable<?>> tableClass) {
+        List<T> result = new ArrayList<>();
         for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
             if (entry.getKey().getClass().getName().equals(tableClass.getName())) {
-                return (List<T>) entry.getValue();
+                result.addAll((List<T>) entry.getValue());
             }
         }
-        return Collections.emptyList();
+        return result;
     }
 
     private @Nullable String generateCalmJsonFromDataTables(ExecutionContext ctx) {
