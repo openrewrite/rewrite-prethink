@@ -15,8 +15,10 @@
  */
 package org.openrewrite.prethink;
 
+import lombok.Getter;
 import org.junit.jupiter.api.Test;
-import org.openrewrite.DocumentExample;
+import org.openrewrite.*;
+import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 
@@ -30,10 +32,10 @@ class ExportContextTest implements RewriteTest {
     @Override
     public void defaults(RecipeSpec spec) {
         spec.recipe(new ExportContext(
-                "Test Context",
-                "Short description for testing",
-                "Long description for testing purposes",
-                List.of()
+          "Test Context",
+          "Short description for testing",
+          "Long description for testing purposes",
+          List.of()
         ));
     }
 
@@ -42,16 +44,16 @@ class ExportContextTest implements RewriteTest {
     void updatesExistingContextCsv() {
         // Test that existing context CSV files can be updated
         rewriteRun(
-            spec -> spec.afterRecipe(run -> {
-                // The recipe should run without error
-                // In production, it would update the CSV with data from ExecutionContext.DATA_TABLES
-            }),
-            // Existing context file that could be updated
-            text(
-                //language=csv
-                "Source path,Description\nold/path,old description",
-                spec -> spec.path(".moderne/context/method-descriptions.csv")
-            )
+          spec -> spec.afterRecipe(run -> {
+              // The recipe should run without error
+              // In production, it would update the CSV with data from ExecutionContext.DATA_TABLES
+          }),
+          // Existing context file that could be updated
+          text(
+            //language=csv
+            "Source path,Description\nold/path,old description",
+            spec -> spec.path(".moderne/context/method-descriptions.csv")
+          )
         );
     }
 
@@ -59,16 +61,16 @@ class ExportContextTest implements RewriteTest {
     void handlesNoDataTables() {
         // Test that the recipe handles the case when no DataTables are present
         rewriteRun(
-            spec -> spec.afterRecipe(run -> {
-                // Should complete without error
-                assertThat(run).isNotNull();
-            }),
-            // Some source file
-            text(
-                //language=Markdown
-                "content",
-                spec -> spec.path("README.md")
-            )
+          spec -> spec.afterRecipe(run -> {
+              // Should complete without error
+              assertThat(run).isNotNull();
+          }),
+          // Some source file
+          text(
+            //language=Markdown
+            "content",
+            spec -> spec.path("README.md")
+          )
         );
     }
 
@@ -76,10 +78,10 @@ class ExportContextTest implements RewriteTest {
     void tableToFilenameConversion() {
         // Test the table name to filename conversion logic
         ExportContext exportContext = new ExportContext(
-                "Test Context",
-                "Short description",
-                "Long description",
-                List.of()
+          "Test Context",
+          "Short description",
+          "Long description",
+          List.of()
         );
 
         // Use reflection to test the private method
@@ -88,11 +90,11 @@ class ExportContextTest implements RewriteTest {
             method.setAccessible(true);
 
             assertThat(method.invoke(exportContext, "io.moderne.context.table.MethodDescriptions"))
-                    .isEqualTo("method-descriptions.csv");
+              .isEqualTo("method-descriptions.csv");
             assertThat(method.invoke(exportContext, "io.moderne.context.table.ClassDescriptions"))
-                    .isEqualTo("class-descriptions.csv");
+              .isEqualTo("class-descriptions.csv");
             assertThat(method.invoke(exportContext, "io.moderne.context.table.TestMapping"))
-                    .isEqualTo("test-mapping.csv");
+              .isEqualTo("test-mapping.csv");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -101,10 +103,10 @@ class ExportContextTest implements RewriteTest {
     @Test
     void toKebabCaseConversion() {
         ExportContext exportContext = new ExportContext(
-                "Test Context",
-                "Short description",
-                "Long description",
-                List.of()
+          "Test Context",
+          "Short description",
+          "Long description",
+          List.of()
         );
 
         // Use reflection to test the private method
@@ -113,11 +115,11 @@ class ExportContextTest implements RewriteTest {
             method.setAccessible(true);
 
             assertThat(method.invoke(exportContext, "Test Coverage"))
-                    .isEqualTo("test-coverage");
+              .isEqualTo("test-coverage");
             assertThat(method.invoke(exportContext, "CodeComprehension"))
-                    .isEqualTo("code-comprehension");
+              .isEqualTo("code-comprehension");
             assertThat(method.invoke(exportContext, "Dependencies"))
-                    .isEqualTo("dependencies");
+              .isEqualTo("dependencies");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -126,12 +128,135 @@ class ExportContextTest implements RewriteTest {
     @Test
     void getContextFilename() {
         ExportContext exportContext = new ExportContext(
-                "Test Coverage",
-                "Short description",
-                "Long description",
-                List.of()
+          "Test Coverage",
+          "Short description",
+          "Long description",
+          List.of()
         );
 
         assertThat(exportContext.getContextFilename()).isEqualTo("test-coverage.md");
+    }
+
+    /**
+     * A fake recipe that populates TestMapping rows from one "recipe".
+     */
+    @Getter
+    public static class PopulateTestMappingA extends Recipe {
+        transient TestMapping testMapping = new TestMapping(this);
+
+        String displayName= "Populate test mapping A";
+        String description = "Populates TestMapping data table with rows from recipe A.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("FooTest.java")) {
+                        testMapping.insertRow(ctx, new TestMapping.Row(
+                          "src/test/java/FooTest.java",
+                          "com.example.FooTest",
+                          "testFoo()",
+                          "src/main/java/Foo.java",
+                          "com.example.Foo",
+                          "foo()",
+                          null,
+                          null
+                        ));
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    /**
+     * A second fake recipe that populates its own TestMapping instance with different rows.
+     */
+    @Getter
+    public static class PopulateTestMappingB extends Recipe {
+        transient TestMapping testMapping = new TestMapping(this);
+
+        String displayName= "Populate test mapping B";
+        String description = "Populates TestMapping data table with rows from recipe B.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("BarTest.java")) {
+                        testMapping.insertRow(ctx, new TestMapping.Row(
+                          "src/test/java/BarTest.java",
+                          "com.example.BarTest",
+                          "testBar()",
+                          "src/main/java/Bar.java",
+                          "com.example.Bar",
+                          "bar()",
+                          null,
+                          null
+                        ));
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    @Test
+    void aggregatesRowsFromMultipleInstancesOfSameDataTable() {
+        rewriteRun(
+          spec -> spec
+            .recipes(
+              new PopulateTestMappingA(),
+              new PopulateTestMappingB(),
+              new ExportContext(
+                "Test Coverage",
+                "Maps tests to implementations",
+                "Detailed description of test coverage context",
+                List.of("org.openrewrite.prethink.table.TestMapping")
+              )
+            )
+            .cycles(2)
+            .expectedCyclesThatMakeChanges(1),
+          // Source files that trigger the two fake recipes
+          text(
+            "package com.example;\npublic class FooTest {}",
+            spec -> spec.path("src/test/java/FooTest.java")
+          ),
+          text(
+            "package com.example;\npublic class BarTest {}",
+            spec -> spec.path("src/test/java/BarTest.java")
+          ),
+          // Expect the aggregated CSV to be generated with rows from both recipes
+          text(
+            doesNotExist(),
+            spec -> spec
+              .path(".moderne/context/test-mapping.csv")
+              .after(csv -> {
+                  assertThat(csv)
+                    .contains("com.example.FooTest")
+                    .contains("testFoo()")
+                    .contains("com.example.BarTest")
+                    .contains("testBar()");
+                  return csv;
+              })
+          ),
+          // Expect the markdown description file
+          text(
+            doesNotExist(),
+            spec -> spec
+              .path(".moderne/context/test-coverage.md")
+              .after(md -> {
+                  assertThat(md)
+                    .contains("# Test Coverage")
+                    .contains("Maps tests to implementations")
+                    .contains("test-mapping.csv");
+                  return md;
+              })
+          )
+        );
     }
 }

@@ -125,37 +125,39 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             return contextFiles;
         }
 
+        // Aggregate rows from all instances of the same DataTable class,
+        // since multiple recipes may populate the same data table type
+        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+        aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
+
         // Collect the data tables we're exporting for the markdown file
         List<DataTableInfo> exportedTables = new ArrayList<>();
 
-        for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-            DataTable<?> table = entry.getKey();
-            List<?> rows = entry.getValue();
+        for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
+            String tableFqn = tableEntry.getKey();
+            DataTable<?> table = tableEntry.getValue();
+            List<?> rows = rowsByFqn.getOrDefault(tableFqn, Collections.emptyList());
 
-            String tableFqn = table.getClass().getName();
+            String filename = tableToFilename(tableFqn);
+            String csvContent = exportToCsv(table, rows);
+            Path filePath = CONTEXT_DIR.resolve(filename);
 
-            // Filter to only requested tables
-            if (dataTables.contains(tableFqn)) {
-                String filename = tableToFilename(tableFqn);
-                String csvContent = exportToCsv(table, rows);
-                Path filePath = CONTEXT_DIR.resolve(filename);
+            // Collect table info for markdown
+            exportedTables.add(new DataTableInfo(
+                    table.getDisplayName(),
+                    table.getDescription(),
+                    filename,
+                    getColumnInfo(table, rows)
+            ));
 
-                // Collect table info for markdown
-                exportedTables.add(new DataTableInfo(
-                        table.getDisplayName(),
-                        table.getDescription(),
-                        filename,
-                        getColumnInfo(table, rows)
-                ));
-
-                // Only generate if file doesn't already exist
-                if (!acc.getExistingContextPaths().contains(filePath)) {
-                    PlainText csvFile = PlainText.builder()
-                            .text(csvContent)
-                            .sourcePath(filePath)
-                            .build();
-                    contextFiles.add(csvFile);
-                }
+            // Only generate if file doesn't already exist
+            if (!acc.getExistingContextPaths().contains(filePath)) {
+                PlainText csvFile = PlainText.builder()
+                        .text(csvContent)
+                        .sourcePath(filePath)
+                        .build();
+                contextFiles.add(csvFile);
             }
         }
 
@@ -206,18 +208,20 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                         if (filename.equals(expectedMdFilename)) {
                             Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
                             if (allTables != null) {
+                                Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+                                Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+                                aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
                                 List<DataTableInfo> exportedTables = new ArrayList<>();
-                                for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-                                    DataTable<?> table = entry.getKey();
-                                    String tableFqn = table.getClass().getName();
-                                    if (dataTables.contains(tableFqn)) {
-                                        exportedTables.add(new DataTableInfo(
-                                                table.getDisplayName(),
-                                                table.getDescription(),
-                                                tableToFilename(tableFqn),
-                                                getColumnInfo(table, entry.getValue())
-                                        ));
-                                    }
+                                for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
+                                    String tableFqn = tableEntry.getKey();
+                                    DataTable<?> table = tableEntry.getValue();
+                                    List<?> rows = rowsByFqn.getOrDefault(tableFqn, Collections.emptyList());
+                                    exportedTables.add(new DataTableInfo(
+                                            table.getDisplayName(),
+                                            table.getDescription(),
+                                            tableToFilename(tableFqn),
+                                            getColumnInfo(table, rows)
+                                    ));
                                 }
                                 if (!exportedTables.isEmpty()) {
                                     String newContent = generateMarkdown(exportedTables);
@@ -299,28 +303,43 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return columns;
     }
 
-    @SuppressWarnings("unchecked")
     private @Nullable String getCsvContentForFile(String filename, ExecutionContext ctx) {
         Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
         if (allTables == null) {
             return null;
         }
 
-        DataTable<?> matchedTable = null;
-        List<Object> allRows = new ArrayList<>();
-        for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-            DataTable<?> table = entry.getKey();
-            String tableFqn = table.getClass().getName();
+        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+        aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
 
-            if (dataTables.contains(tableFqn)) {
-                String expectedFilename = tableToFilename(tableFqn);
-                if (expectedFilename.equals(filename)) {
-                    matchedTable = table;
-                    allRows.addAll((List<Object>) entry.getValue());
-                }
+        for (Map.Entry<String, DataTable<?>> entry : tablesByFqn.entrySet()) {
+            String expectedFilename = tableToFilename(entry.getKey());
+            if (expectedFilename.equals(filename)) {
+                return exportToCsv(entry.getValue(),
+                        rowsByFqn.getOrDefault(entry.getKey(), Collections.emptyList()));
             }
         }
-        return matchedTable != null ? exportToCsv(matchedTable, allRows) : null;
+        return null;
+    }
+
+    /**
+     * Aggregate rows from all DataTable instances of the same class into a single list per class.
+     * When multiple recipes produce the same DataTable type (e.g., FindNodeTestCoverage and
+     * FindTestCoverage both produce TestMapping), this ensures all rows are combined.
+     */
+    @SuppressWarnings("unchecked")
+    private void aggregateMatchingTables(Map<DataTable<?>, List<?>> allTables,
+                                         Map<String, DataTable<?>> tablesByFqn,
+                                         Map<String, List<Object>> rowsByFqn) {
+        for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
+            String tableFqn = entry.getKey().getClass().getName();
+            if (dataTables.contains(tableFqn)) {
+                tablesByFqn.putIfAbsent(tableFqn, entry.getKey());
+                rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>())
+                        .addAll(entry.getValue());
+            }
+        }
     }
 
     private String tableToFilename(String tableFqn) {
