@@ -34,123 +34,123 @@ class UpdateGitignoreTest implements RewriteTest {
     @Test
     void replacesModerneDirectoryPattern() {
         rewriteRun(
-            text(
-                """
-                # Build
-                build/
+          text(
+            """
+              # Build
+              build/
 
-                # Moderne
-                .moderne/
+              # Moderne
+              .moderne/
 
-                # IDE
-                .idea/
-                """,
-                """
-                # Build
-                build/
+              # IDE
+              .idea/
+              """,
+            """
+              # Build
+              build/
 
-                # Moderne
-                .moderne/*
-                !.moderne/context/
+              # Moderne
+              .moderne/*
+              !.moderne/context/
 
-                # IDE
-                .idea/
-                """,
-                spec -> spec.path(".gitignore")
-            )
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          )
         );
     }
 
     @Test
     void addsPatternWhenNoModerneEntry() {
         rewriteRun(
-            text(
-                """
-                # Build
-                build/
+          text(
+            """
+              # Build
+              build/
 
-                # IDE
-                .idea/
-                """,
-                """
-                # Build
-                build/
+              # IDE
+              .idea/
+              """,
+            """
+              # Build
+              build/
 
-                # IDE
-                .idea/
+              # IDE
+              .idea/
 
-                # Moderne CLI
-                .moderne/*
-                !.moderne/context/
-                """,
-                spec -> spec.path(".gitignore")
-            )
+              # Moderne CLI
+              .moderne/*
+              !.moderne/context/
+              """,
+            spec -> spec.path(".gitignore")
+          )
         );
     }
 
     @Test
     void addsExceptionWhenWildcardExistsWithoutException() {
         rewriteRun(
-            text(
-                """
-                # Build
-                build/
+          text(
+            """
+              # Build
+              build/
 
-                # Moderne
-                .moderne/*
-                """,
-                """
-                # Build
-                build/
+              # Moderne
+              .moderne/*
+              """,
+            """
+              # Build
+              build/
 
-                # Moderne
-                .moderne/*
-                !.moderne/context/
-                """,
-                spec -> spec.path(".gitignore")
-            )
+              # Moderne
+              .moderne/*
+              !.moderne/context/
+              """,
+            spec -> spec.path(".gitignore")
+          )
         );
     }
 
     @Test
     void noChangeWhenAlreadyCorrect() {
         rewriteRun(
-            text(
-                """
-                # Build
-                build/
+          text(
+            """
+              # Build
+              build/
 
-                # Moderne
-                .moderne/*
-                !.moderne/context/
-                """,
-                spec -> spec.path(".gitignore")
-            )
+              # Moderne
+              .moderne/*
+              !.moderne/context/
+              """,
+            spec -> spec.path(".gitignore")
+          )
         );
     }
 
     @Test
     void handlesModerneWithoutTrailingSlash() {
         rewriteRun(
-            text(
-                "# Moderne\n.moderne\n",
-                "# Moderne\n.moderne/*\n!.moderne/context/\n",
-                spec -> spec.path(".gitignore")
-            )
+          text(
+            "# Moderne\n.moderne\n",
+            "# Moderne\n.moderne/*\n!.moderne/context/\n",
+            spec -> spec.path(".gitignore")
+          )
         );
     }
 
     @Test
     void doesNotModifyOtherGitignores() {
         rewriteRun(
-            text(
-                """
-                # Build
-                build/
-                .moderne/
-                """,
-                spec -> spec.path("subdir/.gitignore")
-            )
+          text(
+            """
+              # Build
+              build/
+              .moderne/
+              """,
+            spec -> spec.path("subdir/.gitignore")
+          )
         );
     }
 
@@ -173,9 +173,9 @@ class UpdateGitignoreTest implements RewriteTest {
         String input = "build/\n.idea/\n";
         String result = UpdateGitignore.updateGitignoreContent(input);
         assertThat(result)
-                .contains(".moderne/*")
-                .contains("!.moderne/context/")
-                .contains("# Moderne CLI");
+          .contains(".moderne/*")
+          .contains("!.moderne/context/")
+          .contains("# Moderne CLI");
     }
 
     @Test

@@ -19,11 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
 import org.openrewrite.prethink.table.DatabaseConnections;
 import org.openrewrite.prethink.table.ServiceEndpoints;
-import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
-
-import java.util.Map;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
@@ -56,16 +52,16 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                         if (sf.getSourcePath().toString().endsWith("GreetingController.java")) {
                             // Simulate finding an endpoint
                             serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
-                                "endpoint:com.example.GreetingController#greeting(String)",
-                                sf.getSourcePath().toString(),
-                                "com.example.GreetingController",
-                                "greeting",
-                                "GET",
-                                "/greeting",
-                                null,
-                                null,
-                                "Spring",
-                                "com.example.GreetingController{name=greeting,return=String,parameters=[java.lang.String]}"
+                              "endpoint:com.example.GreetingController#greeting(String)",
+                              sf.getSourcePath().toString(),
+                              "com.example.GreetingController",
+                              "greeting",
+                              "GET",
+                              "/greeting",
+                              null,
+                              null,
+                              "Spring",
+                              "com.example.GreetingController{name=greeting,return=String,parameters=[java.lang.String]}"
                             ));
                             System.out.println("[TEST] Inserted ServiceEndpoints row");
                         }
@@ -83,14 +79,14 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         // Cycle 1: placeholder created (change)
         // Cycle 2: placeholder deleted (change)
         rewriteRun(
-            spec -> spec
-                .recipe(new GenerateCalmArchitecture())
-                .cycles(2)
-                .expectedCyclesThatMakeChanges(2),
-            text(
-                "test content",
-                spec -> spec.path("README.md")
-            )
+          spec -> spec
+            .recipe(new GenerateCalmArchitecture())
+            .cycles(2)
+            .expectedCyclesThatMakeChanges(2),
+          text(
+            "test content",
+            spec -> spec.path("README.md")
+          )
         );
     }
 
@@ -101,34 +97,34 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         // Cycle 1: placeholder created, DATA_TABLES populated by visitor
         // Cycle 2: placeholder updated with real CALM content
         rewriteRun(
-            spec -> spec
-                .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
-                .cycles(3)
-                .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
-            text(
-                "package com.example;\npublic class GreetingController {}",
-                spec -> spec.path("src/main/java/com/example/GreetingController.java")
-            ),
-            text(
-                null, // Generated file - expect any non-null content
-                """
-                {
-                  "nodes" : [ {
-                    "unique-id" : "greeting-controller",
-                    "node-type" : "service",
-                    "name" : "GreetingController",
-                    "description" : "REST API with endpoints: GET /greeting",
-                    "interfaces" : [ {
-                      "unique-id" : "greeting-controller-api",
-                      "port" : 8080
-                    } ]
-                  } ],
-                  "relationships" : [ ],
-                  "$schema" : "https://calm.finos.org/draft/2025-03/meta/calm.json"
-                }
-                """,
-                spec -> spec.path(".moderne/context/calm-architecture.json")
-            )
+          spec -> spec
+            .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
+            .cycles(3)
+            .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
+          text(
+            "package com.example;\npublic class GreetingController {}",
+            spec -> spec.path("src/main/java/com/example/GreetingController.java")
+          ),
+          text(
+            null, // Generated file - expect any non-null content
+            """
+              {
+                "nodes" : [ {
+                  "unique-id" : "greeting-controller",
+                  "node-type" : "service",
+                  "name" : "GreetingController",
+                  "description" : "REST API with endpoints: GET /greeting",
+                  "interfaces" : [ {
+                    "unique-id" : "greeting-controller-api",
+                    "port" : 8080
+                  } ]
+                } ],
+                "relationships" : [ ],
+                "$schema" : "https://calm.finos.org/draft/2025-03/meta/calm.json"
+              }
+              """,
+            spec -> spec.path(".moderne/context/calm-architecture.json")
+          )
         );
     }
 
@@ -138,29 +134,29 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         // Cycle 1: placeholder created, DATA_TABLES populated by visitor
         // Cycle 2: placeholder updated with real CALM content
         rewriteRun(
+          spec -> spec
+            .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
+            .cycles(3)
+            .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
+          text(
+            "package com.example;\npublic class GreetingController {}",
+            spec -> spec.path("src/main/java/com/example/GreetingController.java")
+          ),
+          text(
+            null,
             spec -> spec
-                .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
-                .cycles(3)
-                .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
-            text(
-                "package com.example;\npublic class GreetingController {}",
-                spec -> spec.path("src/main/java/com/example/GreetingController.java")
-            ),
-            text(
-                null,
-                spec -> spec
-                    .path(".moderne/context/calm-architecture.json")
-                    // Verify CALM file was created with expected content
-                    .after(content ->
-                        assertThat(content)
-                            .contains("greeting-controller")
-                            .contains("GET /greeting")
-                            .contains("unique-id")
-                            .contains("node-type")
-                            .doesNotContain("uniqueId")
-                            .doesNotContain("nodeType")
-                            .actual())
-            )
+              .path(".moderne/context/calm-architecture.json")
+              // Verify CALM file was created with expected content
+              .after(content ->
+                assertThat(content)
+                  .contains("greeting-controller")
+                  .contains("GET /greeting")
+                  .contains("unique-id")
+                  .contains("node-type")
+                  .doesNotContain("uniqueId")
+                  .doesNotContain("nodeType")
+                  .actual())
+          )
         );
     }
 
@@ -189,13 +185,13 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                         SourceFile sf = (SourceFile) tree;
                         if (sf.getSourcePath().toString().endsWith("OrderRepository.java")) {
                             databaseConnections.insertRow(ctx, new DatabaseConnections.Row(
-                                "repository:com.example.order.repository.OrderRepository",
-                                sf.getSourcePath().toString(),
-                                "Order",
-                                "com.example.order.model.Order",
-                                "com.example.order.repository.OrderRepository",
-                                "Spring Data",
-                                "SQL"
+                              "repository:com.example.order.repository.OrderRepository",
+                              sf.getSourcePath().toString(),
+                              "Order",
+                              "com.example.order.model.Order",
+                              "com.example.order.repository.OrderRepository",
+                              "Spring Data",
+                              "SQL"
                             ));
                         }
                     }
@@ -230,16 +226,16 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                         SourceFile sf = (SourceFile) tree;
                         if (sf.getSourcePath().toString().endsWith("OrderController.java")) {
                             serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
-                                "endpoint:com.example.order.controller.OrderController#createOrder(OrderDto)",
-                                sf.getSourcePath().toString(),
-                                "com.example.order.controller.OrderController",
-                                "createOrder",
-                                "POST",
-                                "/api/orders",
-                                null,
-                                null,
-                                "Spring",
-                                "com.example.order.controller.OrderController{name=createOrder,return=Order,parameters=[OrderDto]}"
+                              "endpoint:com.example.order.controller.OrderController#createOrder(OrderDto)",
+                              sf.getSourcePath().toString(),
+                              "com.example.order.controller.OrderController",
+                              "createOrder",
+                              "POST",
+                              "/api/orders",
+                              null,
+                              null,
+                              "Spring",
+                              "com.example.order.controller.OrderController{name=createOrder,return=Order,parameters=[OrderDto]}"
                             ));
                         }
                     }
@@ -254,38 +250,38 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         // Controller in com.example.order.controller, Repository in com.example.order.repository
         // Parent package matching should resolve both to com.example.order base
         rewriteRun(
-            spec -> spec
-                .recipes(
-                    new PopulateServiceEndpointsInControllerPackage(),
-                    new PopulateDatabaseConnections(),
-                    new GenerateCalmArchitecture()
-                )
-                .cycles(3)
-                .expectedCyclesThatMakeChanges(3),
-            text(
-                "package com.example.order.controller;\npublic class OrderController {}",
-                spec -> spec.path("src/main/java/com/example/order/controller/OrderController.java")
-            ),
-            text(
-                "package com.example.order.repository;\npublic interface OrderRepository {}",
-                spec -> spec.path("src/main/java/com/example/order/repository/OrderRepository.java")
-            ),
-            text(
-                null,
-                spec -> spec
-                    .path(".moderne/context/calm-architecture.json")
-                    .after(content -> {
-                        org.assertj.core.api.Assertions.assertThat(content)
-                            // Service node exists
-                            .contains("order-controller")
-                            // Database node exists
-                            .contains("order-db")
-                            // Connects relationship was created via sibling package matching
-                            .contains("order-controller-to-order-db")
-                            .contains("\"connects\"");
-                        return content;
-                    })
+          spec -> spec
+            .recipes(
+              new PopulateServiceEndpointsInControllerPackage(),
+              new PopulateDatabaseConnections(),
+              new GenerateCalmArchitecture()
             )
+            .cycles(3)
+            .expectedCyclesThatMakeChanges(3),
+          text(
+            "package com.example.order.controller;\npublic class OrderController {}",
+            spec -> spec.path("src/main/java/com/example/order/controller/OrderController.java")
+          ),
+          text(
+            "package com.example.order.repository;\npublic interface OrderRepository {}",
+            spec -> spec.path("src/main/java/com/example/order/repository/OrderRepository.java")
+          ),
+          text(
+            null,
+            spec -> spec
+              .path(".moderne/context/calm-architecture.json")
+              .after(content -> {
+                  org.assertj.core.api.Assertions.assertThat(content)
+                    // Service node exists
+                    .contains("order-controller")
+                    // Database node exists
+                    .contains("order-db")
+                    // Connects relationship was created via sibling package matching
+                    .contains("order-controller-to-order-db")
+                    .contains("\"connects\"");
+                  return content;
+              })
+          )
         );
     }
 }

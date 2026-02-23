@@ -144,7 +144,7 @@ class ExportContextTest implements RewriteTest {
     public static class PopulateTestMappingA extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
 
-        String displayName= "Populate test mapping A";
+        String displayName = "Populate test mapping A";
         String description = "Populates TestMapping data table with rows from recipe A.";
 
         @Override
@@ -178,7 +178,7 @@ class ExportContextTest implements RewriteTest {
     public static class PopulateTestMappingB extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
 
-        String displayName= "Populate test mapping B";
+        String displayName = "Populate test mapping B";
         String description = "Populates TestMapping data table with rows from recipe B.";
 
         @Override
