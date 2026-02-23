@@ -306,6 +306,8 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             return null;
         }
 
+        DataTable<?> matchedTable = null;
+        List<Object> allRows = new ArrayList<>();
         for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
             DataTable<?> table = entry.getKey();
             String tableFqn = table.getClass().getName();
@@ -313,11 +315,12 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             if (dataTables.contains(tableFqn)) {
                 String expectedFilename = tableToFilename(tableFqn);
                 if (expectedFilename.equals(filename)) {
-                    return exportToCsv(table, entry.getValue());
+                    matchedTable = table;
+                    allRows.addAll((List<Object>) entry.getValue());
                 }
             }
         }
-        return null;
+        return matchedTable != null ? exportToCsv(matchedTable, allRows) : null;
     }
 
     private String tableToFilename(String tableFqn) {
