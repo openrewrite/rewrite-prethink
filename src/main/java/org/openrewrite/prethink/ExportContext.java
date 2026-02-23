@@ -337,7 +337,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             if (dataTables.contains(tableFqn)) {
                 tablesByFqn.putIfAbsent(tableFqn, entry.getKey());
                 rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>())
-                        .addAll((List<Object>) entry.getValue());
+                        .addAll(entry.getValue());
             }
         }
     }
