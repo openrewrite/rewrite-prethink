@@ -28,6 +28,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.*;
 
+import static java.util.Collections.emptyList;
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
@@ -69,12 +70,9 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return "Export context files";
     }
 
-    @Override
-    public String getDescription() {
-        return "Export DataTables to CSV files in `.moderne/context/` along with a markdown " +
-               "description file. The markdown file describes the context and includes schema " +
-               "information for each data table.";
-    }
+    String description = "Export DataTables to CSV files in `.moderne/context/` along with a markdown " +
+            "description file. The markdown file describes the context and includes schema " +
+            "information for each data table.";
 
     @Override
     public boolean causesAnotherCycle() {
@@ -113,7 +111,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
         // Skip first cycle - let data table producers complete
         if (ctx.getCycle() == 1) {
-            return Collections.emptyList();
+            return emptyList();
         }
 
         List<SourceFile> contextFiles = new ArrayList<>();
@@ -137,7 +135,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
             String tableFqn = tableEntry.getKey();
             DataTable<?> table = tableEntry.getValue();
-            List<?> rows = rowsByFqn.getOrDefault(tableFqn, Collections.emptyList());
+            List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
 
             String filename = tableToFilename(tableFqn);
             String csvContent = exportToCsv(table, rows);
@@ -215,7 +213,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                                 for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
                                     String tableFqn = tableEntry.getKey();
                                     DataTable<?> table = tableEntry.getValue();
-                                    List<?> rows = rowsByFqn.getOrDefault(tableFqn, Collections.emptyList());
+                                    List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
                                     exportedTables.add(new DataTableInfo(
                                             table.getDisplayName(),
                                             table.getDescription(),
@@ -317,7 +315,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             String expectedFilename = tableToFilename(entry.getKey());
             if (expectedFilename.equals(filename)) {
                 return exportToCsv(entry.getValue(),
-                        rowsByFqn.getOrDefault(entry.getKey(), Collections.emptyList()));
+                        rowsByFqn.getOrDefault(entry.getKey(), emptyList()));
             }
         }
         return null;

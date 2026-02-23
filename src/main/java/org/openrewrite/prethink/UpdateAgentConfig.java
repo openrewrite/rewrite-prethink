@@ -15,12 +15,12 @@
  */
 package org.openrewrite.prethink;
 
-import org.openrewrite.prethink.table.ContextRegistry;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
 import org.jspecify.annotations.Nullable;
 import org.openrewrite.*;
 import org.openrewrite.marker.Markers;
+import org.openrewrite.prethink.table.ContextRegistry;
 import org.openrewrite.text.PlainText;
 import org.openrewrite.text.PlainTextVisitor;
 
@@ -31,10 +31,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static java.util.stream.Collectors.joining;
 import static org.openrewrite.PathUtils.separatorsToSystem;
 import static org.openrewrite.PathUtils.separatorsToUnix;
 
@@ -259,7 +259,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                 throw new IllegalStateException("Template file not found: /org/openrewrite/prethink/prompts/agent-config-section.txt");
             }
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                return reader.lines().collect(Collectors.joining("\n"));
+                return reader.lines().collect(joining("\n"));
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load template file", e);

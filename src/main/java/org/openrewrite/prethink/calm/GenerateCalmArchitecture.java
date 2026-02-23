@@ -19,6 +19,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import lombok.EqualsAndHashCode;
+import lombok.Value;
+import org.jspecify.annotations.Nullable;
+import org.openrewrite.*;
+import org.openrewrite.internal.StringUtils;
 import org.openrewrite.prethink.table.CalmRelationships;
 import org.openrewrite.prethink.table.ClassDescriptions;
 import org.openrewrite.prethink.table.DataAssets;
@@ -30,15 +35,13 @@ import org.openrewrite.prethink.table.SecurityConfiguration;
 import org.openrewrite.prethink.table.ServerConfiguration;
 import org.openrewrite.prethink.table.ServiceComponents;
 import org.openrewrite.prethink.table.ServiceEndpoints;
-import lombok.EqualsAndHashCode;
-import lombok.Value;
-import org.jspecify.annotations.Nullable;
-import org.openrewrite.*;
 import org.openrewrite.text.PlainText;
 
 import java.nio.file.Path;
 import java.util.*;
 
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
@@ -59,17 +62,11 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             .enable(SerializationFeature.INDENT_OUTPUT)
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
-    @Override
-    public String getDisplayName() {
-        return "Generate [CALM](https://calm.finos.org/) architecture";
-    }
+    String displayName = "Generate [CALM](https://calm.finos.org/) architecture";
 
-    @Override
-    public String getDescription() {
-        return "Generate a FINOS CALM (Common Architecture Language Model) JSON file " +
-               "from discovered service endpoints, database connections, external service calls, " +
-               "and messaging connections.";
-    }
+    String description = "Generate a FINOS CALM (Common Architecture Language Model) JSON file " +
+            "from discovered service endpoints, database connections, external service calls, " +
+            "and messaging connections.";
 
 
     @Override
@@ -126,7 +123,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                         .text("{}")
                         .sourcePath(calmPath)
                         .build();
-                return Collections.singletonList(placeholder);
+                return singletonList(placeholder);
             }
         } else {
             // Cycle 2+: DATA_TABLES should be populated from cycle 1 visitors
@@ -138,14 +135,13 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                             .text(content)
                             .sourcePath(calmPath)
                             .build();
-                    return Collections.singletonList(calmFile);
-                } else {
-                    debug("[CALM DEBUG] cycle 2+: no data, not generating CALM file");
+                    return singletonList(calmFile);
                 }
+                debug("[CALM DEBUG] cycle 2+: no data, not generating CALM file");
             }
         }
 
-        return Collections.emptyList();
+        return emptyList();
     }
 
     @Override
@@ -389,7 +385,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 String nodeId = toKebabCase(simpleName);
                 serviceClassToId.put(serviceClass, nodeId);
 
-                List<CalmInterface> interfaces = Collections.singletonList(new CalmInterface(nodeId + "-api", serverPort));
+                List<CalmInterface> interfaces = singletonList(new CalmInterface(nodeId + "-api", serverPort));
                 String description = buildServiceDescription(serviceClass, classEndpoints);
 
                 addNode(new CalmNode(nodeId, "service", simpleName, description, interfaces));
@@ -399,13 +395,15 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
         private String buildServiceDescription(String serviceClass, List<ServiceEndpoints.Row> classEndpoints) {
             String aiDescription = aiDescriptionsByClass.get(serviceClass);
-            if (aiDescription != null && !aiDescription.isEmpty()) {
+            if (StringUtils.isNotEmpty(aiDescription)) {
                 return aiDescription;
             }
             StringBuilder sb = new StringBuilder("REST API with endpoints: ");
             int count = 0;
             for (ServiceEndpoints.Row ep : classEndpoints) {
-                if (count > 0) sb.append(", ");
+                if (count > 0) {
+                    sb.append(", ");
+                }
                 sb.append(ep.getHttpMethod()).append(" ").append(ep.getPath());
                 if (++count >= 5) {
                     sb.append(" and ").append(classEndpoints.size() - 5).append(" more");
@@ -445,7 +443,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     new CalmRelationshipType(
                             null,
                             null,
-                            new CalmRelationshipType.Interacts(webClientNodeId, Collections.singletonList(primaryServiceId))
+                            new CalmRelationshipType.Interacts(webClientNodeId, singletonList(primaryServiceId))
                     ),
                     serverProtocol
             ));
@@ -542,7 +540,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 if (!destinationToNodeId.containsKey(msg.getDestination())) {
                     destinationToNodeId.put(msg.getDestination(), nodeId);
                     addNode(new CalmNode(nodeId, "network", msg.getDestination(),
-                            msg.getMessagingType() + " " + (msg.getRole().equals("consumer") ? "topic/queue" : "destination"), null));
+                            msg.getMessagingType() + " " + ("consumer".equals(msg.getRole()) ? "topic/queue" : "destination"), null));
                 }
 
                 // Track messaging class to node ID for relationship resolution
@@ -558,7 +556,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                     String msgNodeId = destinationToNodeId.get(msg.getDestination());
                     String protocol = msg.getMessagingType().contains("Kafka") ? "TCP" : "AMQP";
 
-                    if (msg.getRole().equals("producer")) {
+                    if ("producer".equals(msg.getRole())) {
                         addRelationship(new CalmRelationship(
                                 serviceId + "-publishes-to-" + msgNodeId,
                                 new CalmRelationshipType(
@@ -613,7 +611,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                                     new CalmRelationshipType(
                                             null,
                                             null,
-                                            new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(toNodeId))
+                                            new CalmRelationshipType.Interacts(fromNodeId, singletonList(toNodeId))
                                     ),
                                     null
                             ));
@@ -637,7 +635,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                                         new CalmRelationshipType(
                                                 null,
                                                 null,
-                                                new CalmRelationshipType.Interacts(fromNodeId, Collections.singletonList(dataNodeId))
+                                                new CalmRelationshipType.Interacts(fromNodeId, singletonList(dataNodeId))
                                         ),
                                         null
                                 ));

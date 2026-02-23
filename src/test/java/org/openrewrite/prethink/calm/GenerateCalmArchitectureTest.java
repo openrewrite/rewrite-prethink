@@ -29,7 +29,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
     /**
      * A fake recipe that just populates the ServiceEndpoints data table.
      */
-    static class PopulateServiceEndpoints extends Recipe {
+    public static class PopulateServiceEndpoints extends Recipe {
         transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
 
         @Override
@@ -47,24 +47,21 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             return new TreeVisitor<Tree, ExecutionContext>() {
                 @Override
                 public Tree visit(Tree tree, ExecutionContext ctx) {
-                    if (tree instanceof SourceFile) {
-                        SourceFile sf = (SourceFile) tree;
-                        if (sf.getSourcePath().toString().endsWith("GreetingController.java")) {
-                            // Simulate finding an endpoint
-                            serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
-                              "endpoint:com.example.GreetingController#greeting(String)",
-                              sf.getSourcePath().toString(),
-                              "com.example.GreetingController",
-                              "greeting",
-                              "GET",
-                              "/greeting",
-                              null,
-                              null,
-                              "Spring",
-                              "com.example.GreetingController{name=greeting,return=String,parameters=[java.lang.String]}"
-                            ));
-                            System.out.println("[TEST] Inserted ServiceEndpoints row");
-                        }
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("GreetingController.java")) {
+                        // Simulate finding an endpoint
+                        serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
+                          "endpoint:com.example.GreetingController#greeting(String)",
+                          sf.getSourcePath().toString(),
+                          "com.example.GreetingController",
+                          "greeting",
+                          "GET",
+                          "/greeting",
+                          null,
+                          null,
+                          "Spring",
+                          "com.example.GreetingController{name=greeting,return=String,parameters=[java.lang.String]}"
+                        ));
                     }
                     return tree;
                 }
@@ -163,7 +160,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
     /**
      * A fake recipe that populates DatabaseConnections data table.
      */
-    static class PopulateDatabaseConnections extends Recipe {
+    public static class PopulateDatabaseConnections extends Recipe {
         transient DatabaseConnections databaseConnections = new DatabaseConnections(this);
 
         @Override
@@ -181,8 +178,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             return new TreeVisitor<Tree, ExecutionContext>() {
                 @Override
                 public Tree visit(Tree tree, ExecutionContext ctx) {
-                    if (tree instanceof SourceFile) {
-                        SourceFile sf = (SourceFile) tree;
+                    if (tree instanceof SourceFile sf) {
                         if (sf.getSourcePath().toString().endsWith("OrderRepository.java")) {
                             databaseConnections.insertRow(ctx, new DatabaseConnections.Row(
                               "repository:com.example.order.repository.OrderRepository",
@@ -204,7 +200,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
     /**
      * A variant of PopulateServiceEndpoints that uses sibling packages.
      */
-    static class PopulateServiceEndpointsInControllerPackage extends Recipe {
+    public static class PopulateServiceEndpointsInControllerPackage extends Recipe {
         transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
 
         @Override
@@ -222,8 +218,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             return new TreeVisitor<Tree, ExecutionContext>() {
                 @Override
                 public Tree visit(Tree tree, ExecutionContext ctx) {
-                    if (tree instanceof SourceFile) {
-                        SourceFile sf = (SourceFile) tree;
+                    if (tree instanceof SourceFile sf) {
                         if (sf.getSourcePath().toString().endsWith("OrderController.java")) {
                             serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
                               "endpoint:com.example.order.controller.OrderController#createOrder(OrderDto)",

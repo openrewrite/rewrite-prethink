@@ -17,7 +17,9 @@ package org.openrewrite.prethink;
 
 import lombok.EqualsAndHashCode;
 import lombok.Value;
-import org.openrewrite.*;
+import org.openrewrite.ExecutionContext;
+import org.openrewrite.Recipe;
+import org.openrewrite.TreeVisitor;
 import org.openrewrite.text.PlainText;
 import org.openrewrite.text.PlainTextVisitor;
 
@@ -59,17 +61,11 @@ public class UpdateGitignore extends Recipe {
     private static final String MODERNE_WILDCARD = ".moderne/*";
     private static final String CONTEXT_EXCEPTION = "!.moderne/context/";
 
-    @Override
-    public String getDisplayName() {
-        return "Update .gitignore for Prethink context";
-    }
+    String displayName = "Update .gitignore for Prethink context";
 
-    @Override
-    public String getDescription() {
-        return "Updates .gitignore to allow committing the `.moderne/context/` directory while " +
-               "ignoring other files in `.moderne/`. Transforms `.moderne/` into `.moderne/*` " +
-               "with an exception for `!.moderne/context/`.";
-    }
+    String description = "Updates .gitignore to allow committing the `.moderne/context/` directory while " +
+            "ignoring other files in `.moderne/`. Transforms `.moderne/` into `.moderne/*` " +
+            "with an exception for `!.moderne/context/`.";
 
     @Override
     public TreeVisitor<?, ExecutionContext> getVisitor() {

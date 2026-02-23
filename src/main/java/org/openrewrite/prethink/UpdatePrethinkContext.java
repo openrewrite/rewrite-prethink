@@ -55,17 +55,11 @@ public class UpdatePrethinkContext extends Recipe {
     @Nullable
     String targetConfigFile;
 
-    @Override
-    public String getDisplayName() {
-        return "Update Prethink context";
-    }
+    String displayName = "Update Prethink context";
 
-    @Override
-    public String getDescription() {
-        return "Generate FINOS CALM architecture diagram and update agent configuration files. " +
-               "This recipe expects CALM-related data tables (ServiceEndpoints, DatabaseConnections, " +
-               "ExternalServiceCalls, MessagingConnections, etc.) to be populated by other recipes in a composite.";
-    }
+    String description = "Generate FINOS CALM architecture diagram and update agent configuration files. " +
+            "This recipe expects CALM-related data tables (ServiceEndpoints, DatabaseConnections, " +
+            "ExternalServiceCalls, MessagingConnections, etc.) to be populated by other recipes in a composite.";
 
     @Override
     public void buildRecipeList(RecipeList recipes) {

@@ -243,7 +243,7 @@ class UpdateAgentConfigTest implements RewriteTest {
             .afterRecipe(run -> {
                 boolean hasClaudeMd = run.getChangeset().getAllResults().stream()
                   .anyMatch(r -> r.getAfter() != null &&
-                    r.getAfter().getSourcePath().toString().equals("CLAUDE.md"));
+                    "CLAUDE.md".equals(r.getAfter().getSourcePath().toString()));
                 assertThat(hasClaudeMd).isTrue();
             }),
           // Only context markdown file exists, no config file
