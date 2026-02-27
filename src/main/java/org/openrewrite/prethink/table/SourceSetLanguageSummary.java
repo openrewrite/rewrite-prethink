@@ -25,7 +25,11 @@ public class SourceSetLanguageSummary extends DataTable<SourceSetLanguageSummary
 
     public SourceSetLanguageSummary(Recipe recipe) {
         super(recipe, "Source set language summary",
-                "Per-source-set language and version information for each module.");
+                "Per-source-set summary of programming languages, compiler versions, file counts, " +
+                "and build tools. Each row represents one language in one source set of one module " +
+                "(e.g., Java 17 in the main source set of the order-api module). Use this to understand " +
+                "what language versions a project targets, which build tools are in use, and how source " +
+                "files are distributed across modules.");
     }
 
     @Value
