@@ -58,16 +58,6 @@ public class ProjectMetadata extends DataTable<ProjectMetadata.Row> {
         @Nullable
         String version;
 
-        @Column(displayName = "Language",
-                description = "The primary language or runtime of the project (e.g., java, node).")
-        @Nullable
-        String language;
-
-        @Column(displayName = "Language version",
-                description = "The language or runtime version (e.g., 17, 20.11.0).")
-        @Nullable
-        String languageVersion;
-
         @Column(displayName = "Parent project",
                 description = "The parent project coordinates (e.g., groupId:artifactId:version for Maven).")
         @Nullable
