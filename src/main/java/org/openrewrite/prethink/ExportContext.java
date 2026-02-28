@@ -325,17 +325,31 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
      * Aggregate rows from all DataTable instances of the same class into a single list per class.
      * When multiple recipes produce the same DataTable type (e.g., FindNodeTestCoverage and
      * FindTestCoverage both produce TestMapping), this ensures all rows are combined.
+     * <p>
+     * Results are ordered by the configured {@link #dataTables} list to ensure deterministic
+     * output regardless of {@link java.util.concurrent.ConcurrentHashMap} iteration order
+     * in {@link ExecutionContext#DATA_TABLES}.
      */
     @SuppressWarnings("unchecked")
     private void aggregateMatchingTables(Map<DataTable<?>, List<?>> allTables,
                                          Map<String, DataTable<?>> tablesByFqn,
                                          Map<String, List<Object>> rowsByFqn) {
+        // Collect into temporary maps first
+        Map<String, DataTable<?>> unordered = new HashMap<>();
+        Map<String, List<Object>> unorderedRows = new HashMap<>();
         for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
             String tableFqn = entry.getKey().getClass().getName();
             if (dataTables.contains(tableFqn)) {
-                tablesByFqn.putIfAbsent(tableFqn, entry.getKey());
-                rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>())
+                unordered.putIfAbsent(tableFqn, entry.getKey());
+                unorderedRows.computeIfAbsent(tableFqn, k -> new ArrayList<>())
                         .addAll(entry.getValue());
+            }
+        }
+        // Insert into output maps in dataTables config order for deterministic output
+        for (String fqn : dataTables) {
+            if (unordered.containsKey(fqn)) {
+                tablesByFqn.put(fqn, unordered.get(fqn));
+                rowsByFqn.put(fqn, unorderedRows.get(fqn));
             }
         }
     }
