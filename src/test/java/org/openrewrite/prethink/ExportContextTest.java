@@ -18,11 +18,15 @@ package org.openrewrite.prethink;
 import lombok.Getter;
 import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
+import org.openrewrite.prethink.table.CodingConventions;
 import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
@@ -259,4 +263,78 @@ class ExportContextTest implements RewriteTest {
           )
         );
     }
+
+    /**
+     * A fake recipe that populates CodingConventions rows.
+     */
+    @Getter
+    public static class PopulateCodingConventions extends Recipe {
+        transient CodingConventions codingConventions = new CodingConventions(this);
+
+        String displayName = "Populate coding conventions";
+        String description = "Populates CodingConventions data table.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("Foo.java")) {
+                        codingConventions.insertRow(ctx, new CodingConventions.Row(
+                          "naming",
+                          "camelCase methods",
+                          "getUserName()",
+                          "high",
+                          "project-wide"
+                        ));
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    @Test
+    void aggregateMatchingTablesOrdersOutputByConfiguredDataTablesOrder() throws Exception {
+        ExportContext exportContext = new ExportContext(
+          "Test",
+          "desc",
+          "long desc",
+          // Config order: CodingConventions FIRST, TestMapping SECOND
+          List.of(
+            "org.openrewrite.prethink.table.CodingConventions",
+            "org.openrewrite.prethink.table.TestMapping"
+          )
+        );
+
+        // Simulate DATA_TABLES with TestMapping FIRST — reverse of config order.
+        // This is what ConcurrentHashMap may produce non-deterministically.
+        Map<DataTable<?>, List<?>> allTables = new LinkedHashMap<>();
+        TestMapping testMapping = new TestMapping(Recipe.noop());
+        CodingConventions codingConventions = new CodingConventions(Recipe.noop());
+        allTables.put(testMapping, List.of(new TestMapping.Row(
+          "src/test/java/FooTest.java", "com.example.FooTest", "testFoo()",
+          "src/main/java/Foo.java", "com.example.Foo", "foo()", null, null
+        )));
+        allTables.put(codingConventions, List.of(new CodingConventions.Row(
+          "naming", "camelCase", "getFoo()", "high", "project-wide"
+        )));
+
+        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+
+        var method = ExportContext.class.getDeclaredMethod(
+          "aggregateMatchingTables", Map.class, Map.class, Map.class);
+        method.setAccessible(true);
+        method.invoke(exportContext, allTables, tablesByFqn, rowsByFqn);
+
+        // Without the fix: tablesByFqn follows allTables iteration order (TestMapping first)
+        // With the fix: tablesByFqn follows dataTables config order (CodingConventions first)
+        assertThat(new ArrayList<>(tablesByFqn.keySet())).containsExactly(
+          "org.openrewrite.prethink.table.CodingConventions",
+          "org.openrewrite.prethink.table.TestMapping"
+        );
+    }
+
 }
