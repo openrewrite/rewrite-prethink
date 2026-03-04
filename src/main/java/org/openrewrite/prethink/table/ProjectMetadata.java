@@ -25,7 +25,10 @@ public class ProjectMetadata extends DataTable<ProjectMetadata.Row> {
 
     public ProjectMetadata(Recipe recipe) {
         super(recipe, "Project metadata",
-                "Project identification including artifact ID, group ID, and name.");
+                "Project-level identity and structure for each build module. Includes Maven GAV " +
+                "coordinates, display name, description, parent project lineage, and submodule count. " +
+                "Use this to understand what the project is, how it relates to parent projects, and " +
+                "whether it is a multi-module aggregator.");
     }
 
     @Value
@@ -57,5 +60,15 @@ public class ProjectMetadata extends DataTable<ProjectMetadata.Row> {
                 description = "The project's version.")
         @Nullable
         String version;
+
+        @Column(displayName = "Parent project",
+                description = "The parent project coordinates (e.g., groupId:artifactId:version for Maven).")
+        @Nullable
+        String parentProject;
+
+        @Column(displayName = "Module count",
+                description = "The number of declared submodules for aggregator projects.")
+        @Nullable
+        Integer moduleCount;
     }
 }
