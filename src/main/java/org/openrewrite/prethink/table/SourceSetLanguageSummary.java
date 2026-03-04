@@ -51,7 +51,7 @@ public class SourceSetLanguageSummary extends DataTable<SourceSetLanguageSummary
         String buildTool;
 
         @Column(displayName = "Language",
-                description = "The programming language (e.g., Java, Kotlin, Groovy, Scala, TypeScript, CSharp).")
+                description = "The programming language (e.g., Java, Kotlin, Groovy, Scala, TypeScript, C#).")
         String language;
 
         @Column(displayName = "File count",
