@@ -9,7 +9,6 @@ description = "Trusted context for LLM coding agents"
 val rewriteVersion = rewriteRecipe.rewriteVersion.get()
 dependencies {
     implementation(platform("org.openrewrite:rewrite-bom:$rewriteVersion"))
-    implementation(platform("org.openrewrite.recipe:rewrite-recipe-bom:$rewriteVersion"))
     implementation("org.openrewrite:rewrite-java")
     implementation("org.openrewrite:rewrite-properties")
     implementation("org.openrewrite:rewrite-yaml")
