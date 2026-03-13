@@ -84,7 +84,7 @@ public class UpdateGitignore extends ScanningRecipe<AtomicBoolean> {
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                if (tree instanceof SourceFile) {
+                if (tree instanceof SourceFile && !contextFilesExist.get()) {
                     Path path = ((SourceFile) tree).getSourcePath();
                     if (path.startsWith(CONTEXT_DIR)) {
                         contextFilesExist.set(true);
