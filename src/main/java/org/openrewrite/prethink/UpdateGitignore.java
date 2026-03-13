@@ -17,20 +17,26 @@ package org.openrewrite.prethink;
 
 import lombok.EqualsAndHashCode;
 import lombok.Value;
-import org.openrewrite.ExecutionContext;
-import org.openrewrite.Recipe;
-import org.openrewrite.TreeVisitor;
+import org.jspecify.annotations.Nullable;
+import org.openrewrite.*;
 import org.openrewrite.text.PlainText;
 import org.openrewrite.text.PlainTextVisitor;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
  * Updates .gitignore to allow committing the .moderne/context/ directory while
  * ignoring other files in .moderne/.
+ * <p>
+ * This recipe only modifies .gitignore when context files actually exist in
+ * .moderne/context/. If no context files were generated (e.g. no supported
+ * frameworks detected), .gitignore is left unchanged.
  * <p>
  * This recipe transforms:
  * <pre>
@@ -46,7 +52,7 @@ import java.util.regex.Pattern;
  */
 @Value
 @EqualsAndHashCode(callSuper = false)
-public class UpdateGitignore extends Recipe {
+public class UpdateGitignore extends ScanningRecipe<AtomicBoolean> {
 
     private static final Path GITIGNORE_PATH = Paths.get(".gitignore");
 
@@ -64,11 +70,36 @@ public class UpdateGitignore extends Recipe {
     String displayName = "Update .gitignore for Prethink context";
 
     String description = "Updates .gitignore to allow committing the `.moderne/context/` directory while " +
-            "ignoring other files in `.moderne/`. Transforms `.moderne/` into `.moderne/*` " +
+            "ignoring other files in `.moderne/`. Only modifies .gitignore when context files exist " +
+            "in `.moderne/context/`. Transforms `.moderne/` into `.moderne/*` " +
             "with an exception for `!.moderne/context/`.";
 
     @Override
-    public TreeVisitor<?, ExecutionContext> getVisitor() {
+    public AtomicBoolean getInitialValue(ExecutionContext ctx) {
+        return new AtomicBoolean(false);
+    }
+
+    @Override
+    public TreeVisitor<?, ExecutionContext> getScanner(AtomicBoolean contextFilesExist) {
+        return new TreeVisitor<Tree, ExecutionContext>() {
+            @Override
+            public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
+                if (tree instanceof SourceFile) {
+                    Path path = ((SourceFile) tree).getSourcePath();
+                    if (path.startsWith(CONTEXT_DIR)) {
+                        contextFilesExist.set(true);
+                    }
+                }
+                return tree;
+            }
+        };
+    }
+
+    @Override
+    public TreeVisitor<?, ExecutionContext> getVisitor(AtomicBoolean contextFilesExist) {
+        if (!contextFilesExist.get()) {
+            return TreeVisitor.noop();
+        }
         return new PlainTextVisitor<ExecutionContext>() {
             @Override
             public PlainText visitText(PlainText text, ExecutionContext ctx) {
