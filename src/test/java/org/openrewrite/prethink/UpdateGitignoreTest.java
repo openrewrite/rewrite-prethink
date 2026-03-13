@@ -57,6 +57,10 @@ class UpdateGitignoreTest implements RewriteTest {
               .idea/
               """,
             spec -> spec.path(".gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
           )
         );
     }
@@ -84,6 +88,10 @@ class UpdateGitignoreTest implements RewriteTest {
               !.moderne/context/
               """,
             spec -> spec.path(".gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
           )
         );
     }
@@ -108,6 +116,10 @@ class UpdateGitignoreTest implements RewriteTest {
               !.moderne/context/
               """,
             spec -> spec.path(".gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
           )
         );
     }
@@ -125,6 +137,10 @@ class UpdateGitignoreTest implements RewriteTest {
               !.moderne/context/
               """,
             spec -> spec.path(".gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
           )
         );
     }
@@ -135,6 +151,63 @@ class UpdateGitignoreTest implements RewriteTest {
           text(
             "# Moderne\n.moderne\n",
             "# Moderne\n.moderne/*\n!.moderne/context/\n",
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
+          )
+        );
+    }
+
+    @Test
+    void updatesGitignoreWhenContextFilesExist() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/*
+              !.moderne/context/
+
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "some context content",
+            spec -> spec.path(".moderne/context/architecture.md")
+          )
+        );
+    }
+
+    @Test
+    void noChangeWhenNoContextFilesExist() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
             spec -> spec.path(".gitignore")
           )
         );
@@ -150,6 +223,10 @@ class UpdateGitignoreTest implements RewriteTest {
               .moderne/
               """,
             spec -> spec.path("subdir/.gitignore")
+          ),
+          text(
+            "context",
+            spec -> spec.path(".moderne/context/architecture.md")
           )
         );
     }
