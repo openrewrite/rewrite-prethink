@@ -116,18 +116,18 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
 
         List<SourceFile> contextFiles = new ArrayList<>();
 
-        // Access DATA_TABLES here - after preceding recipes have populated it
-        Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
-
-        if (allTables == null || allTables.isEmpty()) {
-            return contextFiles;
-        }
+        // Access DataTableStore here - after preceding recipes have populated it
+        DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
 
         // Aggregate rows from all instances of the same DataTable class,
         // since multiple recipes may populate the same data table type
         Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
         Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-        aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
+        aggregateMatchingTables(store, tablesByFqn, rowsByFqn);
+
+        if (tablesByFqn.isEmpty()) {
+            return contextFiles;
+        }
 
         // Collect the data tables we're exporting for the markdown file
         List<DataTableInfo> exportedTables = new ArrayList<>();
@@ -204,11 +204,11 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                         // Update markdown file
                         String expectedMdFilename = toKebabCase(displayName) + ".md";
                         if (filename.equals(expectedMdFilename)) {
-                            Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
-                            if (allTables != null) {
+                            DataTableStore store2 = DataTableExecutionContextView.view(ctx).getDataTableStore();
+                            {
                                 Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
                                 Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-                                aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
+                                aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
                                 List<DataTableInfo> exportedTables = new ArrayList<>();
                                 for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
                                     String tableFqn = tableEntry.getKey();
@@ -302,14 +302,11 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     }
 
     private @Nullable String getCsvContentForFile(String filename, ExecutionContext ctx) {
-        Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
-        if (allTables == null) {
-            return null;
-        }
+        DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
 
         Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
         Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-        aggregateMatchingTables(allTables, tablesByFqn, rowsByFqn);
+        aggregateMatchingTables(store, tablesByFqn, rowsByFqn);
 
         for (Map.Entry<String, DataTable<?>> entry : tablesByFqn.entrySet()) {
             String expectedFilename = tableToFilename(entry.getKey());
@@ -326,16 +323,15 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
      * When multiple recipes produce the same DataTable type (e.g., FindNodeTestCoverage and
      * FindTestCoverage both produce TestMapping), this ensures all rows are combined.
      */
-    @SuppressWarnings("unchecked")
-    private void aggregateMatchingTables(Map<DataTable<?>, List<?>> allTables,
+    private void aggregateMatchingTables(DataTableStore store,
                                          Map<String, DataTable<?>> tablesByFqn,
                                          Map<String, List<Object>> rowsByFqn) {
-        for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-            String tableFqn = entry.getKey().getClass().getName();
+        for (DataTable<?> dt : store.getDataTables()) {
+            String tableFqn = dt.getClass().getName();
             if (dataTables.contains(tableFqn)) {
-                tablesByFqn.putIfAbsent(tableFqn, entry.getKey());
-                rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>())
-                        .addAll(entry.getValue());
+                tablesByFqn.putIfAbsent(tableFqn, dt);
+                List<Object> rows = rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>());
+                store.getRows(dt.getName(), dt.getGroup()).forEach(rows::add);
             }
         }
     }

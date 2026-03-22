@@ -181,37 +181,34 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
     }
 
     @SuppressWarnings("unchecked")
-    private <T> List<T> getTableRows(Map<DataTable<?>, List<?>> allTables, Class<? extends DataTable<?>> tableClass) {
+    private <T> List<T> getTableRows(DataTableStore store, Class<? extends DataTable<?>> tableClass) {
         List<T> result = new ArrayList<>();
-        for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-            if (entry.getKey().getClass().getName().equals(tableClass.getName())) {
-                result.addAll((List<T>) entry.getValue());
+        for (DataTable<?> dt : store.getDataTables()) {
+            if (dt.getClass().getName().equals(tableClass.getName())) {
+                store.getRows(dt.getName(), dt.getGroup()).forEach(row -> result.add((T) row));
             }
         }
         return result;
     }
 
     private @Nullable String generateCalmJsonFromDataTables(ExecutionContext ctx) {
-        Map<DataTable<?>, List<?>> allTables = ctx.getMessage(ExecutionContext.DATA_TABLES);
+        DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
 
-        debug("[CALM DEBUG] allTables null? " + (allTables == null));
-        if (allTables != null) {
-            debug("[CALM DEBUG] allTables size: " + allTables.size());
-            for (Map.Entry<DataTable<?>, List<?>> entry : allTables.entrySet()) {
-                debug("[CALM DEBUG]   table: " + entry.getKey().getClass().getName() + " rows: " + entry.getValue().size());
-            }
+        debug("[CALM DEBUG] store tables: " + store.getDataTables().size());
+        for (DataTable<?> dt : store.getDataTables()) {
+            debug("[CALM DEBUG]   table: " + dt.getClass().getName());
         }
 
-        if (allTables == null || allTables.isEmpty()) {
-            debug("[CALM DEBUG] returning null - allTables empty");
+        if (store.getDataTables().isEmpty()) {
+            debug("[CALM DEBUG] returning null - store empty");
             return null;
         }
 
-        List<ServiceEndpoints.Row> endpoints = getTableRows(allTables, ServiceEndpoints.class);
-        List<DatabaseConnections.Row> databases = getTableRows(allTables, DatabaseConnections.class);
-        List<ExternalServiceCalls.Row> externalCalls = getTableRows(allTables, ExternalServiceCalls.class);
-        List<MessagingConnections.Row> messaging = getTableRows(allTables, MessagingConnections.class);
-        List<CalmRelationships.Row> methodCalls = getTableRows(allTables, CalmRelationships.class);
+        List<ServiceEndpoints.Row> endpoints = getTableRows(store, ServiceEndpoints.class);
+        List<DatabaseConnections.Row> databases = getTableRows(store, DatabaseConnections.class);
+        List<ExternalServiceCalls.Row> externalCalls = getTableRows(store, ExternalServiceCalls.class);
+        List<MessagingConnections.Row> messaging = getTableRows(store, MessagingConnections.class);
+        List<CalmRelationships.Row> methodCalls = getTableRows(store, CalmRelationships.class);
         debug("[CALM DEBUG] endpoints: " + endpoints.size() + ", databases: " + databases.size() +
               ", externalCalls: " + externalCalls.size() + ", messaging: " + messaging.size() +
               ", methodCalls: " + methodCalls.size());
@@ -222,7 +219,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             return null;
         }
 
-        CalmBuilder builder = new CalmBuilder(allTables);
+        CalmBuilder builder = new CalmBuilder(store);
         builder.addSystemNode();
         builder.addServiceNodes(endpoints);
         builder.addDataAssetNodes();
@@ -273,13 +270,13 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         private final int serverPort;
         private String systemNodeId;
 
-        CalmBuilder(Map<DataTable<?>, List<?>> allTables) {
-            this.serverConfigs = getTableRows(allTables, ServerConfiguration.class);
-            this.dataAssets = getTableRows(allTables, DataAssets.class);
-            this.projectMetadata = getTableRows(allTables, ProjectMetadata.class);
-            this.securityConfigs = getTableRows(allTables, SecurityConfiguration.class);
+        CalmBuilder(DataTableStore store) {
+            this.serverConfigs = getTableRows(store, ServerConfiguration.class);
+            this.dataAssets = getTableRows(store, DataAssets.class);
+            this.projectMetadata = getTableRows(store, ProjectMetadata.class);
+            this.securityConfigs = getTableRows(store, SecurityConfiguration.class);
 
-            List<ClassDescriptions.Row> classDescriptions = getTableRows(allTables, ClassDescriptions.class);
+            List<ClassDescriptions.Row> classDescriptions = getTableRows(store, ClassDescriptions.class);
             for (ClassDescriptions.Row row : classDescriptions) {
                 aiDescriptionsByClass.put(row.getClassName(), row.getDescription());
             }
@@ -294,19 +291,19 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
 
             // Build class-to-entityId registry from all entity discovery tables
-            buildClassToEntityRegistry(allTables);
+            buildClassToEntityRegistry(store);
 
             // Register @Service/@Component classes in the entity registry for method-call resolution.
             // Do NOT add to serviceClassToId — that's for controller classes that have actual nodes.
-            List<ServiceComponents.Row> serviceComponents = getTableRows(allTables, ServiceComponents.class);
+            List<ServiceComponents.Row> serviceComponents = getTableRows(store, ServiceComponents.class);
             for (ServiceComponents.Row row : serviceComponents) {
                 classToEntityId.put(row.getClassName(), row.getEntityId());
             }
         }
 
-        private void buildClassToEntityRegistry(Map<DataTable<?>, List<?>> allTables) {
+        private void buildClassToEntityRegistry(DataTableStore store) {
             // ServiceEndpoints
-            List<ServiceEndpoints.Row> endpoints = getTableRows(allTables, ServiceEndpoints.class);
+            List<ServiceEndpoints.Row> endpoints = getTableRows(store, ServiceEndpoints.class);
             for (ServiceEndpoints.Row row : endpoints) {
                 if (row.getServiceClass() != null) {
                     classToEntityId.put(row.getServiceClass(), row.getEntityId());
@@ -314,7 +311,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
 
             // DatabaseConnections
-            List<DatabaseConnections.Row> databases = getTableRows(allTables, DatabaseConnections.class);
+            List<DatabaseConnections.Row> databases = getTableRows(store, DatabaseConnections.class);
             for (DatabaseConnections.Row row : databases) {
                 if (row.getRepositoryClass() != null) {
                     classToEntityId.put(row.getRepositoryClass(), row.getEntityId());
@@ -325,7 +322,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
 
             // ExternalServiceCalls
-            List<ExternalServiceCalls.Row> externalCalls = getTableRows(allTables, ExternalServiceCalls.class);
+            List<ExternalServiceCalls.Row> externalCalls = getTableRows(store, ExternalServiceCalls.class);
             for (ExternalServiceCalls.Row row : externalCalls) {
                 if (row.getClientClass() != null) {
                     classToEntityId.put(row.getClientClass(), row.getEntityId());
@@ -333,7 +330,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             }
 
             // MessagingConnections
-            List<MessagingConnections.Row> messaging = getTableRows(allTables, MessagingConnections.class);
+            List<MessagingConnections.Row> messaging = getTableRows(store, MessagingConnections.class);
             for (MessagingConnections.Row row : messaging) {
                 if (row.getClassName() != null) {
                     classToEntityId.put(row.getClassName(), row.getEntityId());
