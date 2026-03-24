@@ -326,12 +326,22 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     private void aggregateMatchingTables(DataTableStore store,
                                          Map<String, DataTable<?>> tablesByFqn,
                                          Map<String, List<Object>> rowsByFqn) {
+        // First pass: collect all matching tables (order from store is non-deterministic)
+        Map<String, DataTable<?>> unordered = new HashMap<>();
+        Map<String, List<Object>> unorderedRows = new HashMap<>();
         for (DataTable<?> dt : store.getDataTables()) {
             String tableFqn = dt.getClass().getName();
             if (dataTables.contains(tableFqn)) {
-                tablesByFqn.putIfAbsent(tableFqn, dt);
-                List<Object> rows = rowsByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>());
+                unordered.putIfAbsent(tableFqn, dt);
+                List<Object> rows = unorderedRows.computeIfAbsent(tableFqn, k -> new ArrayList<>());
                 store.getRows(dt.getName(), dt.getGroup()).forEach(rows::add);
+            }
+        }
+        // Second pass: insert in dataTables list order for deterministic output
+        for (String fqn : dataTables) {
+            if (unordered.containsKey(fqn)) {
+                tablesByFqn.put(fqn, unordered.get(fqn));
+                rowsByFqn.put(fqn, unorderedRows.getOrDefault(fqn, new ArrayList<>()));
             }
         }
     }
