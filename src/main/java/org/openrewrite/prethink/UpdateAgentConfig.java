@@ -232,7 +232,9 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
 
     private String generateContextSection(List<ContextEntry> contextEntries) {
         String template = loadTemplate();
-        String contextTable = generateContextTable(contextEntries);
+        List<ContextEntry> sorted = new ArrayList<>(contextEntries);
+        sorted.sort(Comparator.comparing(ContextEntry::getDisplayName));
+        String contextTable = generateContextTable(sorted);
         String content = template.replace("{{CONTEXT_TABLE}}", contextTable);
 
         return CONTEXT_SECTION_MARKER + "\n" + content + "\n<!-- /prethink-context -->";

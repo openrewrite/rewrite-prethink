@@ -719,13 +719,12 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 return null;
             }
             String basePackage = getBasePackage(className);
-            for (Map.Entry<String, String> entry : serviceClassToId.entrySet()) {
-                String serviceBase = getBasePackage(entry.getKey());
-                if (serviceBase.equals(basePackage)) {
-                    return entry.getValue();
-                }
-            }
-            return null;
+            return serviceClassToId.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .filter(e -> getBasePackage(e.getKey()).equals(basePackage))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
         }
 
         private String getBasePackage(String fqcn) {
@@ -759,7 +758,12 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 }
             }
 
-            return new CalmDocument(CALM_SCHEMA, allNodes, relationships);
+            // Sort for deterministic output across runs
+            allNodes.sort(Comparator.comparing(CalmNode::getUniqueId));
+            List<CalmRelationship> sortedRelationships = new ArrayList<>(relationships);
+            sortedRelationships.sort(Comparator.comparing(CalmRelationship::getUniqueId));
+
+            return new CalmDocument(CALM_SCHEMA, allNodes, sortedRelationships);
         }
 
         private void collectReferencedNodeIds(CalmRelationship rel, Set<String> ids) {
