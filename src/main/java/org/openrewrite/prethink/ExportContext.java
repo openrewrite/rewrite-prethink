@@ -323,6 +323,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
      * When multiple recipes produce the same DataTable type (e.g., FindNodeTestCoverage and
      * FindTestCoverage both produce TestMapping), this ensures all rows are combined.
      */
+    @SuppressWarnings({"unchecked"})
     private void aggregateMatchingTables(DataTableStore store,
                                          Map<String, DataTable<?>> tablesByFqn,
                                          Map<String, List<Object>> rowsByFqn) {
@@ -334,7 +335,8 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             if (dataTables.contains(tableFqn)) {
                 unordered.putIfAbsent(tableFqn, dt);
                 List<Object> rows = unorderedRows.computeIfAbsent(tableFqn, k -> new ArrayList<>());
-                store.getRows(dt.getName(), dt.getGroup()).forEach(rows::add);
+                Class<? extends DataTable<Object>> dtClass = (Class<? extends DataTable<Object>>) dt.getClass();
+                store.getRows(dtClass, dt.getGroup()).forEach(rows::add);
             }
         }
         // Second pass: insert in dataTables list order for deterministic output

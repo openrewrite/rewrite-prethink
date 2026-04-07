@@ -60,7 +60,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT)
-            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            .setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
 
     String displayName = "Generate [CALM](https://calm.finos.org/) architecture";
 
@@ -180,12 +180,11 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         };
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> List<T> getTableRows(DataTableStore store, Class<? extends DataTable<?>> tableClass) {
+    private <T> List<T> getTableRows(DataTableStore store, Class<? extends DataTable<T>> tableClass) {
         List<T> result = new ArrayList<>();
         for (DataTable<?> dt : store.getDataTables()) {
             if (dt.getClass().getName().equals(tableClass.getName())) {
-                store.getRows(dt.getName(), dt.getGroup()).forEach(row -> result.add((T) row));
+                store.getRows(tableClass, dt.getGroup()).forEach(result::add);
             }
         }
         return result;
@@ -262,7 +261,6 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         private final Map<String, String> aiDescriptionsByClass = new HashMap<>();
         private final Map<String, String> classToEntityId = new HashMap<>();
         private final Map<String, DataAssets.Row> dataAssetById = new LinkedHashMap<>();
-        private final List<ServerConfiguration.Row> serverConfigs;
         private final List<DataAssets.Row> dataAssets;
         private final List<ProjectMetadata.Row> projectMetadata;
         private final List<SecurityConfiguration.Row> securityConfigs;
@@ -271,7 +269,7 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         private String systemNodeId;
 
         CalmBuilder(DataTableStore store) {
-            this.serverConfigs = getTableRows(store, ServerConfiguration.class);
+            List<ServerConfiguration.Row> serverConfigs = getTableRows(store, ServerConfiguration.class);
             this.dataAssets = getTableRows(store, DataAssets.class);
             this.projectMetadata = getTableRows(store, ProjectMetadata.class);
             this.securityConfigs = getTableRows(store, SecurityConfiguration.class);
