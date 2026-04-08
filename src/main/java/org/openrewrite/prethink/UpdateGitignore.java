@@ -85,9 +85,17 @@ public class UpdateGitignore extends ScanningRecipe<AtomicBoolean> {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
                 if (tree instanceof SourceFile && !contextFilesExist.get()) {
-                    Path path = ((SourceFile) tree).getSourcePath();
-                    if (path.startsWith(CONTEXT_DIR)) {
-                        contextFilesExist.set(true);
+                    SourceFile sourceFile = (SourceFile) tree;
+                    Path path = sourceFile.getSourcePath();
+                    if (path.startsWith(CONTEXT_DIR) &&
+                        path.toString().endsWith(".csv") &&
+                        sourceFile instanceof PlainText) {
+                        String text = ((PlainText) sourceFile).getText();
+                        // Only count CSV files that have content beyond the header line
+                        if (text.indexOf('\n') != -1 &&
+                            text.indexOf('\n') < text.length() - 1) {
+                            contextFilesExist.set(true);
+                        }
                     }
                 }
                 return tree;
