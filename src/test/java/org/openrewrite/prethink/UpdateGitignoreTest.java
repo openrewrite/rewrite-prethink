@@ -59,8 +59,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "context",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -90,8 +90,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "context",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -118,8 +118,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "context",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -139,8 +139,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "context",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -154,8 +154,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "context",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -188,8 +188,8 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path(".gitignore")
           ),
           text(
-            "some context content",
-            spec -> spec.path(".moderne/context/architecture.md")
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
           )
         );
     }
@@ -225,7 +225,76 @@ class UpdateGitignoreTest implements RewriteTest {
             spec -> spec.path("subdir/.gitignore")
           ),
           text(
-            "context",
+            "Header\ndata row\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
+          )
+        );
+    }
+
+    @Test
+    void noChangeWhenCsvHasOnlyHeaders() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "Header1,Header2\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
+          )
+        );
+    }
+
+    @Test
+    void noChangeWhenCsvHasCommentsAndHeaderOnly() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "# This is a comment\n# Another comment\nHeader1,Header2\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
+          )
+        );
+    }
+
+    @Test
+    void noChangeWhenOnlyNonCsvContextFilesExist() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "some context content",
             spec -> spec.path(".moderne/context/architecture.md")
           )
         );

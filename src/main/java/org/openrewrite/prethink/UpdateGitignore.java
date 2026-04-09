@@ -85,9 +85,16 @@ public class UpdateGitignore extends ScanningRecipe<AtomicBoolean> {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
                 if (tree instanceof SourceFile && !contextFilesExist.get()) {
-                    Path path = ((SourceFile) tree).getSourcePath();
-                    if (path.startsWith(CONTEXT_DIR)) {
-                        contextFilesExist.set(true);
+                    SourceFile sourceFile = (SourceFile) tree;
+                    Path path = sourceFile.getSourcePath();
+                    if (path.startsWith(CONTEXT_DIR) &&
+                        path.toString().endsWith(".csv") &&
+                        sourceFile instanceof PlainText) {
+                        String text = ((PlainText) sourceFile).getText();
+                        // Only count CSV files that have data rows beyond comments and headers
+                        if (hasDataRows(text)) {
+                            contextFilesExist.set(true);
+                        }
                     }
                 }
                 return tree;
@@ -121,6 +128,24 @@ public class UpdateGitignore extends ScanningRecipe<AtomicBoolean> {
      * @param content The current gitignore content
      * @return The updated gitignore content
      */
+    static boolean hasDataRows(String text) {
+        boolean pastHeaders = false;
+        for (String line : text.split("\n", -1)) {
+            if (line.startsWith("#")) {
+                continue;
+            }
+            if (!pastHeaders) {
+                // First non-comment line is the column header
+                pastHeaders = true;
+                continue;
+            }
+            if (!line.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static String updateGitignoreContent(String content) {
         // Check if already has the correct pattern
         if (content.contains(MODERNE_WILDCARD) && content.contains(CONTEXT_EXCEPTION)) {
