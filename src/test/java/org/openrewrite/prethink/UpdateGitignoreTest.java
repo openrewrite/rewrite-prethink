@@ -255,6 +255,29 @@ class UpdateGitignoreTest implements RewriteTest {
     }
 
     @Test
+    void noChangeWhenCsvHasCommentsAndHeaderOnly() {
+        rewriteRun(
+          text(
+            """
+              # Build
+              build/
+
+              # Moderne
+              .moderne/
+
+              # IDE
+              .idea/
+              """,
+            spec -> spec.path(".gitignore")
+          ),
+          text(
+            "# This is a comment\n# Another comment\nHeader1,Header2\n",
+            spec -> spec.path(".moderne/context/test-mapping.csv")
+          )
+        );
+    }
+
+    @Test
     void noChangeWhenOnlyNonCsvContextFilesExist() {
         rewriteRun(
           text(
