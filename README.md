@@ -70,7 +70,7 @@ Prethink automatically updates coding agent configuration files to reference the
 
 ## Usage
 
-This library provides the core Prethink infrastructure. For a complete solution with architectural discovery recipes, see [Moderne Prethink](https://github.com/moderneinc/rewrite-prethink).
+This library provides the core Prethink infrastructure. For a complete solution with architectural discovery recipes, see [Moderne Prethink](https://docs.moderne.io/user-documentation/agent-tools/prethink/).
 
 ## Contributing
 
