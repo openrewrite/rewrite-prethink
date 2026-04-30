@@ -28,6 +28,17 @@ public final class Prethink {
      */
     public static final Path CONTEXT_DIR = Paths.get(".moderne", "context");
 
+    /**
+     * ExecutionContext message key whose <em>presence</em> requests another scheduler cycle.
+     * The key itself is never read; the value is never consumed. Recipes call
+     * {@code ctx.putMessage(CYCLE_TRIGGER, true)} for the side effect of flipping
+     * {@code WatchableExecutionContext.hasNewMessages}, which {@code RecipeRunCycle}
+     * treats as "this recipe made a change" and combines with {@code causesAnotherCycle()}
+     * to enroll the recipe for the next cycle. The {@code io.moderne.} prefix is required
+     * by {@code CursorValidatingExecutionContextView}'s allow-list for ExecutionContext mutations.
+     */
+    public static final String CYCLE_TRIGGER = "io.moderne.prethink.cycleTrigger";
+
     private Prethink() {
     }
 }

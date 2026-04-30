@@ -185,10 +185,8 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                 // Skip first cycle: data tables aren't populated until producer recipes' visitors
                 // run, and generate also defers to cycle 2. Request another cycle so the scheduler
                 // doesn't terminate the loop after cycle 1 when no other recipe makes changes.
-                // The "io.moderne." prefix is required by CursorValidatingExecutionContextView,
-                // which blocks unprefixed mutations of the ExecutionContext.
                 if (ctx.getCycle() == 1) {
-                    ctx.putMessage("io.moderne.prethink.export-context.cycle-trigger", true);
+                    ctx.putMessage(Prethink.CYCLE_TRIGGER, true);
                     return tree;
                 }
                 if (tree instanceof PlainText) {

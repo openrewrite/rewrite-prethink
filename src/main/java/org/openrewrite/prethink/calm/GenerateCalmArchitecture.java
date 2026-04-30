@@ -42,6 +42,8 @@ import java.util.*;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
+import org.openrewrite.prethink.Prethink;
+
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
@@ -155,9 +157,8 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 // .moderne/context/* files visible in the LST, that workaround stops triggering
                 // cycle 2 for repos that already have the file. Request another cycle here so
                 // the scheduler doesn't terminate the loop after cycle 1.
-                // The "io.moderne." prefix is required by CursorValidatingExecutionContextView.
                 if (ctx.getCycle() == 1) {
-                    ctx.putMessage("io.moderne.prethink.calm.cycle-trigger", true);
+                    ctx.putMessage(Prethink.CYCLE_TRIGGER, true);
                     return tree;
                 }
                 // Only process in cycle 2 when DATA_TABLES is populated from cycle 1 visitors.
