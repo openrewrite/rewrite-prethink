@@ -17,9 +17,13 @@ package org.openrewrite.prethink.calm;
 
 import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
+import org.openrewrite.internal.InMemoryLargeSourceSet;
 import org.openrewrite.prethink.table.DatabaseConnections;
 import org.openrewrite.prethink.table.ServiceEndpoints;
 import org.openrewrite.test.RewriteTest;
+import org.openrewrite.text.PlainText;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
@@ -123,6 +127,68 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             spec -> spec.path(".moderne/context/calm-architecture.json")
           )
         );
+    }
+
+    @Test
+    void updatesExistingCalmFileEvenWhenNoOtherRecipeMakesChangesInCycle1() {
+        // Regression: when calm-architecture.json is already present in the LST (the post-
+        // moderne-cli#3661 reality, where the build-time LST manifest now includes
+        // .moderne/context/* files), the cycle-1 placeholder workaround in generate() is
+        // skipped because the path is already in the accumulator. The visitor only runs in
+        // cycle 2. If no other recipe in the pipeline makes a change in cycle 1, the
+        // RecipeScheduler loop breaks after cycle 1 and the existing CALM file never gets
+        // updated.
+        //
+        // This test mirrors the production CLI scheduler call (RunTask.java passes
+        // maxCycles=3, minCycles=1) by invoking Recipe.run directly. PopulateServiceEndpoints
+        // inserts a data-table row but returns the tree unchanged, contributing no
+        // tree-level changes. Without the cycle-1 trigger added in getVisitor(), the
+        // existing calm-architecture.json would not be updated.
+
+        Recipe pipeline = new Recipe() {
+            @Override
+            public String getDisplayName() {
+                return "Pipeline: producer + GenerateCalmArchitecture";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Test pipeline.";
+            }
+
+            @Override
+            public List<Recipe> getRecipeList() {
+                return List.of(
+                  new PopulateServiceEndpoints(),
+                  new GenerateCalmArchitecture()
+                );
+            }
+        };
+
+        SourceFile controller = PlainText.builder()
+          .text("package com.example;\npublic class GreetingController {}")
+          .sourcePath(java.nio.file.Paths.get("src/main/java/com/example/GreetingController.java"))
+          .build();
+        SourceFile staleCalm = PlainText.builder()
+          .text("{\"stale\": true}")
+          .sourcePath(java.nio.file.Paths.get(".moderne/context/calm-architecture.json"))
+          .build();
+        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(controller, staleCalm));
+
+        // Match production: maxCycles=3, minCycles=1.
+        RecipeRun run = pipeline.run(lss, new InMemoryExecutionContext(), 3, 1);
+
+        SourceFile updated = run.getChangeset().getAllResults().stream()
+          .filter(r -> r.getAfter() != null && ".moderne/context/calm-architecture.json".equals(r.getAfter().getSourcePath().toString()))
+          .findFirst().map(org.openrewrite.Result::getAfter).orElse(null);
+
+        assertThat(updated)
+          .as("cycle 2 must run so the existing calm-architecture.json gets updated from data tables")
+          .isNotNull();
+        assertThat(((PlainText) updated).getText())
+          .as("the stale content should have been replaced with real CALM JSON")
+          .doesNotContain("\"stale\": true")
+          .contains("greeting-controller");
     }
 
     @Test

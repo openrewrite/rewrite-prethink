@@ -149,6 +149,17 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
+                // Cycle 1: data tables aren't populated yet, but we need cycle 2 to run so the
+                // existing calm-architecture.json gets updated. The placeholder workaround in
+                // generate() only fires when the file is absent from the LST; once #3661 made
+                // .moderne/context/* files visible in the LST, that workaround stops triggering
+                // cycle 2 for repos that already have the file. Request another cycle here so
+                // the scheduler doesn't terminate the loop after cycle 1.
+                // The "io.moderne." prefix is required by CursorValidatingExecutionContextView.
+                if (ctx.getCycle() == 1) {
+                    ctx.putMessage("io.moderne.prethink.calm.cycle-trigger", true);
+                    return tree;
+                }
                 // Only process in cycle 2 when DATA_TABLES is populated from cycle 1 visitors.
                 // Don't process in later cycles to avoid infinite loop.
                 if (ctx.getCycle() != 2) {

@@ -18,9 +18,11 @@ package org.openrewrite.prethink;
 import lombok.Getter;
 import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
+import org.openrewrite.internal.InMemoryLargeSourceSet;
 import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
+import org.openrewrite.text.PlainText;
 
 import java.util.List;
 
@@ -203,6 +205,75 @@ class ExportContextTest implements RewriteTest {
                 }
             };
         }
+    }
+
+    @Test
+    void requestsAnotherCycleWhenNoOtherRecipeMakesChangesInCycle1() {
+        // Regression for the multi-repo bug: when no other recipe in the pipeline
+        // makes a tree-modifying change in cycle 1, RecipeScheduler.runRecipeCycles
+        // terminates the loop after cycle 1 (since `madeChangesInThisCycle` is empty
+        // and `i >= minCycles`). ExportContext.generate() defers all work to cycle 2,
+        // so without an explicit cycle-trigger it would never produce any files.
+        //
+        // This test mirrors the production CLI scheduler call (RunTask.java passes
+        // maxCycles=3, minCycles=1) by invoking Recipe.run directly. RewriteTest's
+        // rewriteRun cannot represent this because it strictly enforces
+        // `expectedCyclesThatMakeChanges`, and the only way to set minCycles=1
+        // through that API also asserts zero cycles make changes -- contradicting
+        // the success criterion.
+        //
+        // PopulateTestMappingA inserts a data-table row but returns the tree
+        // unchanged, contributing no tree-level changes. Without the cycle trigger
+        // in ExportContext.getVisitor(), cycle 1 ends with `madeChangesInThisCycle`
+        // empty, the loop breaks, and ExportContext.generate() never runs.
+
+        Recipe pipeline = new Recipe() {
+            @Override
+            public String getDisplayName() {
+                return "Pipeline: producer + ExportContext";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Test pipeline.";
+            }
+
+            @Override
+            public List<Recipe> getRecipeList() {
+                return List.of(
+                  new PopulateTestMappingA(),
+                  new ExportContext(
+                    "Test Coverage",
+                    "Maps tests to implementations",
+                    "Detailed description of test coverage context",
+                    List.of("org.openrewrite.prethink.table.TestMapping")
+                  )
+                );
+            }
+        };
+
+        SourceFile fooTest = PlainText.builder()
+          .text("package com.example;\npublic class FooTest {}")
+          .sourcePath(java.nio.file.Paths.get("src/test/java/FooTest.java"))
+          .build();
+        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(fooTest));
+
+        // Match production: maxCycles=3, minCycles=1.
+        RecipeRun run = pipeline.run(lss, new InMemoryExecutionContext(), 3, 1);
+
+        List<String> generatedPaths = run.getChangeset().getAllResults().stream()
+          .filter(r -> r.getAfter() != null)
+          .map(r -> r.getAfter().getSourcePath().toString())
+          .collect(java.util.stream.Collectors.toList());
+
+        assertThat(generatedPaths)
+          .as("generate() must produce context files even when no other recipe makes a tree-modifying change in cycle 1")
+          .contains(".moderne/context/test-mapping.csv", ".moderne/context/test-coverage.md");
+
+        SourceFile csv = run.getChangeset().getAllResults().stream()
+          .filter(r -> r.getAfter() != null && ".moderne/context/test-mapping.csv".equals(r.getAfter().getSourcePath().toString()))
+          .findFirst().map(org.openrewrite.Result::getAfter).orElseThrow();
+        assertThat(((PlainText) csv).getText()).contains("com.example.FooTest").contains("testFoo()");
     }
 
     @Test
