@@ -43,7 +43,7 @@ import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
  */
 @Value
 @EqualsAndHashCode(callSuper = false)
-public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
+public class ExportContext extends PrethinkContextRecipe {
 
     @Option(displayName = "Display name",
             description = "The display name for this context, shown in agent configurations.",
@@ -73,39 +73,6 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     String description = "Export DataTables to CSV files in `.moderne/context/` along with a markdown " +
             "description file. The markdown file describes the context and includes schema " +
             "information for each data table.";
-
-    @Override
-    public boolean causesAnotherCycle() {
-        return true;
-    }
-
-    @Value
-    public static class Accumulator {
-        Set<Path> existingContextPaths;
-    }
-
-    @Override
-    public Accumulator getInitialValue(ExecutionContext ctx) {
-        return new Accumulator(new HashSet<>());
-    }
-
-    @Override
-    public TreeVisitor<?, ExecutionContext> getScanner(Accumulator acc) {
-        return new TreeVisitor<Tree, ExecutionContext>() {
-            @Override
-            public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                if (tree instanceof SourceFile) {
-                    SourceFile sf = (SourceFile) tree;
-                    Path path = sf.getSourcePath();
-                    // Track existing context files so we can update them
-                    if (path.startsWith(CONTEXT_DIR)) {
-                        acc.getExistingContextPaths().add(path);
-                    }
-                }
-                return tree;
-            }
-        };
-    }
 
     @Override
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
@@ -178,62 +145,53 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     }
 
     @Override
-    public TreeVisitor<?, ExecutionContext> getVisitor(Accumulator acc) {
-        return new TreeVisitor<Tree, ExecutionContext>() {
-            @Override
-            public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Skip first cycle
-                if (ctx.getCycle() == 1) {
-                    return tree;
+    protected @Nullable Tree cycle2Visit(@Nullable Tree tree, Accumulator acc, ExecutionContext ctx) {
+        if (tree instanceof PlainText) {
+            PlainText pt = (PlainText) tree;
+            Path path = pt.getSourcePath();
+
+            if (path.startsWith(CONTEXT_DIR)) {
+                String filename = path.getFileName().toString();
+
+                // Update CSV files
+                if (filename.endsWith(".csv")) {
+                    String newContent = getCsvContentForFile(filename, ctx);
+                    if (newContent != null && !newContent.equals(pt.getText())) {
+                        return pt.withText(newContent);
+                    }
                 }
-                if (tree instanceof PlainText) {
-                    PlainText pt = (PlainText) tree;
-                    Path path = pt.getSourcePath();
 
-                    if (path.startsWith(CONTEXT_DIR)) {
-                        String filename = path.getFileName().toString();
-
-                        // Update CSV files
-                        if (filename.endsWith(".csv")) {
-                            String newContent = getCsvContentForFile(filename, ctx);
-                            if (newContent != null && !newContent.equals(pt.getText())) {
-                                return pt.withText(newContent);
-                            }
+                // Update markdown file
+                String expectedMdFilename = toKebabCase(displayName) + ".md";
+                if (filename.equals(expectedMdFilename)) {
+                    DataTableStore store2 = DataTableExecutionContextView.view(ctx).getDataTableStore();
+                    {
+                        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+                        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+                        aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
+                        List<DataTableInfo> exportedTables = new ArrayList<>();
+                        for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
+                            String tableFqn = tableEntry.getKey();
+                            DataTable<?> table = tableEntry.getValue();
+                            List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
+                            exportedTables.add(new DataTableInfo(
+                                    table.getDisplayName(),
+                                    table.getDescription(),
+                                    tableToFilename(tableFqn),
+                                    getColumnInfo(table, rows)
+                            ));
                         }
-
-                        // Update markdown file
-                        String expectedMdFilename = toKebabCase(displayName) + ".md";
-                        if (filename.equals(expectedMdFilename)) {
-                            DataTableStore store2 = DataTableExecutionContextView.view(ctx).getDataTableStore();
-                            {
-                                Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
-                                Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-                                aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
-                                List<DataTableInfo> exportedTables = new ArrayList<>();
-                                for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
-                                    String tableFqn = tableEntry.getKey();
-                                    DataTable<?> table = tableEntry.getValue();
-                                    List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
-                                    exportedTables.add(new DataTableInfo(
-                                            table.getDisplayName(),
-                                            table.getDescription(),
-                                            tableToFilename(tableFqn),
-                                            getColumnInfo(table, rows)
-                                    ));
-                                }
-                                if (!exportedTables.isEmpty()) {
-                                    String newContent = generateMarkdown(exportedTables);
-                                    if (!newContent.equals(pt.getText())) {
-                                        return pt.withText(newContent);
-                                    }
-                                }
+                        if (!exportedTables.isEmpty()) {
+                            String newContent = generateMarkdown(exportedTables);
+                            if (!newContent.equals(pt.getText())) {
+                                return pt.withText(newContent);
                             }
                         }
                     }
                 }
-                return tree;
             }
-        };
+        }
+        return tree;
     }
 
     /**

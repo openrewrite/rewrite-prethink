@@ -42,6 +42,8 @@ import java.util.*;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
+import org.openrewrite.prethink.PrethinkContextRecipe;
+
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
@@ -53,7 +55,7 @@ import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
  */
 @Value
 @EqualsAndHashCode(callSuper = false)
-public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchitecture.Accumulator> {
+public class GenerateCalmArchitecture extends PrethinkContextRecipe {
 
     private static final String CALM_FILENAME = "calm-architecture.json";
     private static final String CALM_SCHEMA = "https://calm.finos.org/draft/2025-03/meta/calm.json";
@@ -68,40 +70,6 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
             "from discovered service endpoints, database connections, external service calls, " +
             "and messaging connections.";
 
-
-    @Override
-    public boolean causesAnotherCycle() {
-        return true;
-    }
-
-    @Value
-    public static class Accumulator {
-        Set<Path> existingContextPaths;
-    }
-
-    @Override
-    public Accumulator getInitialValue(ExecutionContext ctx) {
-        debug("[CALM DEBUG] getInitialValue() called, cycle=" + ctx.getCycle());
-        return new Accumulator(new HashSet<>());
-    }
-
-    @Override
-    public TreeVisitor<?, ExecutionContext> getScanner(Accumulator acc) {
-        return new TreeVisitor<Tree, ExecutionContext>() {
-            @Override
-            public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                if (tree instanceof SourceFile) {
-                    SourceFile sf = (SourceFile) tree;
-                    Path path = sf.getSourcePath();
-                    if (path.startsWith(CONTEXT_DIR)) {
-                        acc.getExistingContextPaths().add(path);
-                    }
-                }
-                return tree;
-            }
-        };
-    }
-
     @SuppressWarnings("unused")
     private static void debug(String message) {
         // Debug logging - uncomment for troubleshooting
@@ -112,72 +80,53 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
         debug("[CALM DEBUG] generate() called, cycle=" + ctx.getCycle());
 
-        Path calmPath = CONTEXT_DIR.resolve(CALM_FILENAME);
-
+        // Cycle 1's data tables are still empty; the base class triggers cycle 2 separately.
         if (ctx.getCycle() == 1) {
-            // In cycle 1, DATA_TABLES won't be populated yet (rows are inserted in visitor phase).
-            // Generate a placeholder to trigger cycle 2.
-            if (!acc.getExistingContextPaths().contains(calmPath)) {
-                debug("[CALM DEBUG] cycle 1: generating placeholder to trigger cycle 2");
-                PlainText placeholder = PlainText.builder()
-                        .text("{}")
-                        .sourcePath(calmPath)
-                        .build();
-                return singletonList(placeholder);
-            }
-        } else {
-            // Cycle 2+: DATA_TABLES should be populated from cycle 1 visitors
-            if (!acc.getExistingContextPaths().contains(calmPath)) {
-                String content = generateCalmJsonFromDataTables(ctx);
-                if (content != null) {
-                    debug("[CALM DEBUG] cycle 2+: generating CALM file at " + calmPath);
-                    PlainText calmFile = PlainText.builder()
-                            .text(content)
-                            .sourcePath(calmPath)
-                            .build();
-                    return singletonList(calmFile);
-                }
-                debug("[CALM DEBUG] cycle 2+: no data, not generating CALM file");
-            }
+            return emptyList();
         }
 
-        return emptyList();
+        Path calmPath = CONTEXT_DIR.resolve(CALM_FILENAME);
+        if (acc.getExistingContextPaths().contains(calmPath)) {
+            // Existing file is updated in cycle2Visit, not regenerated here.
+            return emptyList();
+        }
+
+        String content = generateCalmJsonFromDataTables(ctx);
+        if (content == null) {
+            debug("[CALM DEBUG] cycle 2+: no data, not generating CALM file");
+            return emptyList();
+        }
+        debug("[CALM DEBUG] cycle 2+: generating CALM file at " + calmPath);
+        return singletonList(PlainText.builder()
+                .text(content)
+                .sourcePath(calmPath)
+                .build());
     }
 
     @Override
-    public TreeVisitor<?, ExecutionContext> getVisitor(Accumulator acc) {
-        return new TreeVisitor<Tree, ExecutionContext>() {
-            @Override
-            public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Only process in cycle 2 when DATA_TABLES is populated from cycle 1 visitors.
-                // Don't process in later cycles to avoid infinite loop.
-                if (ctx.getCycle() != 2) {
-                    return tree;
+    protected @Nullable Tree cycle2Visit(@Nullable Tree tree, Accumulator acc, ExecutionContext ctx) {
+        if (tree instanceof PlainText) {
+            PlainText pt = (PlainText) tree;
+            Path path = pt.getSourcePath();
+
+            if (path.equals(CONTEXT_DIR.resolve(CALM_FILENAME))) {
+                debug("[CALM DEBUG] visitor processing CALM file, cycle=" + ctx.getCycle());
+                String newContent = generateCalmJsonFromDataTables(ctx);
+
+                // No architectural data - delete the file
+                if (newContent == null) {
+                    debug("[CALM DEBUG] no content, deleting file");
+                    return null;
                 }
-                if (tree instanceof PlainText) {
-                    PlainText pt = (PlainText) tree;
-                    Path path = pt.getSourcePath();
 
-                    if (path.equals(CONTEXT_DIR.resolve(CALM_FILENAME))) {
-                        debug("[CALM DEBUG] visitor processing CALM file, cycle=" + ctx.getCycle());
-                        String newContent = generateCalmJsonFromDataTables(ctx);
-
-                        // No architectural data - delete the placeholder file
-                        if (newContent == null) {
-                            debug("[CALM DEBUG] no content, deleting placeholder");
-                            return null;
-                        }
-
-                        // Update with new content if different
-                        if (!newContent.equals(pt.getText())) {
-                            debug("[CALM DEBUG] updating CALM file with content");
-                            return pt.withText(newContent);
-                        }
-                    }
+                // Update with new content if different
+                if (!newContent.equals(pt.getText())) {
+                    debug("[CALM DEBUG] updating CALM file with content");
+                    return pt.withText(newContent);
                 }
-                return tree;
             }
-        };
+        }
+        return tree;
     }
 
     private <T> List<T> getTableRows(DataTableStore store, Class<? extends DataTable<T>> tableClass) {
