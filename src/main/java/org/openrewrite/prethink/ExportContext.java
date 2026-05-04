@@ -182,8 +182,11 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Skip first cycle
+                // Skip first cycle: data tables aren't populated until producer recipes' visitors
+                // run, and generate also defers to cycle 2. Request another cycle so the scheduler
+                // doesn't terminate the loop after cycle 1 when no other recipe makes changes.
                 if (ctx.getCycle() == 1) {
+                    ctx.putMessage(Prethink.CYCLE_TRIGGER, true);
                     return tree;
                 }
                 if (tree instanceof PlainText) {
