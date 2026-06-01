@@ -24,7 +24,10 @@ import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 import org.openrewrite.text.PlainText;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
@@ -329,5 +332,79 @@ class ExportContextTest implements RewriteTest {
               })
           )
         );
+    }
+
+    @Test
+    void aggregatesEachReferencedTableExactlyOncePerRun() {
+        // Regression for the per-context re-read blow-up: ExportContext used to call
+        // the DataTableStore for every referenced table once in generate(), once per
+        // visited context CSV in getVisitor(), and again in the forced extra cycle --
+        // 2 * (F + 2) reads per table (6 here, F = 1 context CSV). It now aggregates +
+        // renders once per cycle and reuses that within the cycle. The ScanningRecipe
+        // accumulator is per-cycle (stored on the per-cycle root cursor), so the export
+        // runs in cycle 2 and the forced cycle 3 -> exactly 2 reads of the one
+        // referenced table, independent of how many context files are visited.
+        AtomicInteger getRowsCalls = new AtomicInteger();
+        DataTableStore countingStore = new DataTableStore() {
+            final InMemoryDataTableStore delegate = new InMemoryDataTableStore();
+
+            @Override
+            public <Row> void insertRow(DataTable<Row> dataTable, ExecutionContext ctx, Row row) {
+                delegate.insertRow(dataTable, ctx, row);
+            }
+
+            @Override
+            public Stream<?> getRows(String dataTableName, String group) {
+                getRowsCalls.incrementAndGet();
+                return delegate.getRows(dataTableName, group);
+            }
+
+            @Override
+            public Collection<DataTable<?>> getDataTables() {
+                return delegate.getDataTables();
+            }
+        };
+
+        Recipe pipeline = new Recipe() {
+            @Override
+            public String getDisplayName() {
+                return "Pipeline: producer + ExportContext";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Test pipeline.";
+            }
+
+            @Override
+            public List<Recipe> getRecipeList() {
+                return List.of(
+                  new PopulateTestMappingA(),
+                  new ExportContext(
+                    "Test Coverage",
+                    "Maps tests to implementations",
+                    "Detailed description of test coverage context",
+                    List.of("org.openrewrite.prethink.table.TestMapping")
+                  )
+                );
+            }
+        };
+
+        SourceFile fooTest = PlainText.builder()
+          .text("package com.example;\npublic class FooTest {}")
+          .sourcePath(java.nio.file.Paths.get("src/test/java/FooTest.java"))
+          .build();
+        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(fooTest));
+
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx).setDataTableStore(countingStore);
+
+        // Match production: maxCycles=3, minCycles=1.
+        pipeline.run(lss, ctx, 3, 1);
+
+        assertThat(getRowsCalls.get())
+          .as("ExportContext must read each referenced table once per cycle (cycles 2 and 3), "
+              + "not once per visited context file (which was 2*(F+2) = 6 before memoization)")
+          .isEqualTo(2);
     }
 }
