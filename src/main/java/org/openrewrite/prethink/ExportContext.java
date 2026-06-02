@@ -87,10 +87,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             return existingContextPaths;
         }
 
-        // Aggregated + rendered exactly once in the export phase (cycle >= 2), then
-        // reused for every file visit and any later cycle. Producers only write data
-        // tables in cycle <= 1, so the tables are frozen by then and caching is safe.
-        // `csvByFilename != null` is the "already rendered" sentinel.
+        // Rendered once and reused; safe to cache because producers stop writing after cycle 1.
         @Nullable
         volatile Map<String, String> csvByFilename;
         @Nullable
@@ -102,12 +99,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return new Accumulator();
     }
 
-    /**
-     * Aggregate the referenced data tables and render their CSV + markdown output
-     * exactly once per run; subsequent calls are no-ops. This replaces re-reading
-     * every table from disk in generate(), again in getVisitor() once per visited
-     * context file, and again in the forced extra cycle.
-     */
+    /** Aggregate and render each context's tables once per run; later calls are no-ops. */
     private void renderOnce(Accumulator acc, ExecutionContext ctx) {
         if (acc.csvByFilename != null) {
             return;
@@ -118,9 +110,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             }
             DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
 
-            // Group the present DataTable instances by class without reading any rows.
-            // Multiple recipes may write the same table type (e.g. FindTestCoverage and
-            // FindNodeTestCoverage both produce TestMapping); their rows are concatenated.
+            // Multiple recipes can write the same table type, so collect every instance to concatenate its rows.
             Map<String, List<DataTable<?>>> instancesByFqn = new HashMap<>();
             for (DataTable<?> dt : store.getDataTables()) {
                 String tableFqn = dt.getClass().getName();
@@ -147,19 +137,12 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                 ));
             }
             acc.markdown = exportedTables.isEmpty() ? null : generateMarkdown(exportedTables);
-            // Publish last: readers that observe a non-null map also observe `markdown`
-            // and the fully-built map contents (volatile happens-before).
+            // Publish the map last so readers see it (and markdown) fully built — volatile happens-before.
             acc.csvByFilename = rendered;
         }
     }
 
-    /**
-     * Render one data table to CSV by streaming its rows straight from the store into
-     * the writer one row at a time, never materializing the full row set in memory.
-     * Rows from every instance of the same table class are concatenated. The row stream
-     * is closed after each instance so a lazy {@link DataTableStore} can release the
-     * underlying file handle.
-     */
+    /** Stream each row straight to the writer so a full table is never held in memory. */
     @SuppressWarnings("unchecked")
     private String streamToCsv(DataTableStore store, DataTable<?> representative, List<DataTable<?>> instances) {
         List<Field> columnFields = getColumnFields(representative.getType());
