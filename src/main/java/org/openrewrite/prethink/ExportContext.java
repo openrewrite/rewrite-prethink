@@ -87,7 +87,12 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             return existingContextPaths;
         }
 
-        // Rendered once and reused; safe to cache because producers stop writing after cycle 1.
+        // The fill-phase output, aggregated and rendered exactly once (in cycle 2+,
+        // when the store is populated) and reused across every visited context file
+        // instead of re-reading the data tables per file. Safe to cache because the
+        // producing recipes stop writing after cycle 1. A table that produced no
+        // rows is absent from the map so getVisitor() deletes its cycle-1
+        // placeholder. Published last via volatile so readers see a fully-built map.
         @Nullable
         volatile Map<String, String> csvByFilename;
         @Nullable
@@ -99,7 +104,13 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return new Accumulator();
     }
 
-    /** Aggregate and render each context's tables once per run; later calls are no-ops. */
+    /**
+     * Aggregate and render this context's tables exactly once, caching the result
+     * on the accumulator; later calls are no-ops. Only invoked from cycle 2+ (the
+     * store is empty during cycle 1), so it always reads populated data tables.
+     * Tables that produced no rows are omitted from {@link Accumulator#csvByFilename}
+     * so their cycle-1 placeholder is deleted in {@link #getVisitor}.
+     */
     private void renderOnce(Accumulator acc, ExecutionContext ctx) {
         if (acc.csvByFilename != null) {
             return;
@@ -128,7 +139,14 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                     continue;
                 }
                 DataTable<?> representative = instances.get(0);
-                rendered.put(tableToFilename(tableFqn), streamToCsv(store, representative, instances));
+                String csv = streamToCsv(store, representative, instances);
+                // No rows across any instance: omit so the cycle-1 placeholder is
+                // deleted (matching GenerateCalmArchitecture, which removes its
+                // placeholder when there is no data), and skip it in the markdown.
+                if (csv == null) {
+                    continue;
+                }
+                rendered.put(tableToFilename(tableFqn), csv);
                 exportedTables.add(new DataTableInfo(
                         representative.getDisplayName(),
                         representative.getDescription(),
@@ -142,9 +160,14 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         }
     }
 
-    /** Stream each row straight to the writer so a full table is never held in memory. */
+    /**
+     * Stream each row straight to the writer so a full table is never held in
+     * memory. Returns {@code null} when no instance produced any row, signalling
+     * the caller to drop the table (so empty tables don't leave a headers-only
+     * CSV behind).
+     */
     @SuppressWarnings("unchecked")
-    private String streamToCsv(DataTableStore store, DataTable<?> representative, List<DataTable<?>> instances) {
+    private @Nullable String streamToCsv(DataTableStore store, DataTable<?> representative, List<DataTable<?>> instances) {
         List<Field> columnFields = getColumnFields(representative.getType());
         String[] headers = columnFields.stream()
                 .map(f -> f.getAnnotation(Column.class).displayName())
@@ -154,11 +177,13 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         CsvWriter writer = new CsvWriter(stringWriter, new CsvWriterSettings());
         writer.writeHeaders(headers);
 
+        boolean[] wroteRow = {false};
         String[] values = new String[columnFields.size()];
         for (DataTable<?> instance : instances) {
             Class<? extends DataTable<Object>> dtClass = (Class<? extends DataTable<Object>>) instance.getClass();
             try (Stream<Object> rows = store.getRows(dtClass, instance.getGroup())) {
                 rows.forEach(row -> {
+                    wroteRow[0] = true;
                     for (int i = 0; i < columnFields.size(); i++) {
                         Field field = columnFields.get(i);
                         try {
@@ -175,7 +200,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         }
 
         writer.close();
-        return stringWriter.toString();
+        return wroteRow[0] ? stringWriter.toString() : null;
     }
 
     @Override
@@ -198,41 +223,57 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
 
     @Override
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
-        // Skip first cycle - let data table producers complete
-        if (ctx.getCycle() == 1) {
+        // The data tables this recipe exports are populated by sibling recipes
+        // during the *edit* phase of cycle 1, which runs after this generate
+        // phase. So the store is still empty here in cycle 1 — we cannot read
+        // rows yet. Instead, generate placeholder files in cycle 1 (one CSV per
+        // configured data table, plus the markdown) and fill them with real
+        // content from the store in cycle 2 via getVisitor().
+        //
+        // This mirrors GenerateCalmArchitecture, and is deliberate: generating a
+        // file in cycle 1 and editing it in cycle 2 is the only file-producing
+        // pattern the Moderne CLI's V3 edit overlay carries through reliably.
+        // Generating a brand-new file in cycle 2 (the previous behavior of this
+        // recipe) is dropped from the changeset on real multi-file repositories,
+        // so no topic CSVs were ever written even though their data tables were
+        // populated. Generating the placeholder in cycle 1 also drives the second
+        // cycle on its own (a generated file is a change), so the export no longer
+        // depends on a sibling recipe making a change to trigger cycle 2.
+        if (ctx.getCycle() != 1 || dataTables.isEmpty()) {
             return emptyList();
         }
 
-        // Aggregate + render exactly once; reused by getVisitor() and any later cycle.
-        renderOnce(acc, ctx);
-
         List<SourceFile> contextFiles = new ArrayList<>();
-        Map<String, String> csvByFilename = acc.csvByFilename;
-        if (csvByFilename == null || csvByFilename.isEmpty()) {
-            return contextFiles;
+
+        // One placeholder CSV per configured data table. The header row comes
+        // from the Row class schema, so it is available without any rows.
+        boolean anyTableResolvable = false;
+        for (String tableFqn : dataTables) {
+            String headers = getHeadersFromTableFqn(tableFqn);
+            // Skip tables whose Row class can't be resolved on this classpath —
+            // we can't produce a meaningful CSV (and don't want an empty file).
+            if (headers.isEmpty()) {
+                continue;
+            }
+            anyTableResolvable = true;
+            Path filePath = CONTEXT_DIR.resolve(tableToFilename(tableFqn));
+            if (acc.getExistingContextPaths().contains(filePath)) {
+                continue;
+            }
+            contextFiles.add(PlainText.builder()
+                    .text(headers)
+                    .sourcePath(filePath)
+                    .build());
         }
 
-        for (Map.Entry<String, String> entry : csvByFilename.entrySet()) {
-            Path filePath = CONTEXT_DIR.resolve(entry.getKey());
-            // Only generate if file doesn't already exist
-            if (!acc.getExistingContextPaths().contains(filePath)) {
-                contextFiles.add(PlainText.builder()
-                        .text(entry.getValue())
-                        .sourcePath(filePath)
-                        .build());
-            }
-        }
-
-        // Generate the markdown description file
-        String markdown = acc.markdown;
-        if (markdown != null) {
-            Path mdPath = CONTEXT_DIR.resolve(toKebabCase(displayName) + ".md");
-            if (!acc.getExistingContextPaths().contains(mdPath)) {
-                contextFiles.add(PlainText.builder()
-                        .text(markdown)
-                        .sourcePath(mdPath)
-                        .build());
-            }
+        // Placeholder markdown description file (only when at least one table
+        // can actually be exported).
+        Path mdPath = CONTEXT_DIR.resolve(toKebabCase(displayName) + ".md");
+        if (anyTableResolvable && !acc.getExistingContextPaths().contains(mdPath)) {
+            contextFiles.add(PlainText.builder()
+                    .text("# " + displayName + "\n")
+                    .sourcePath(mdPath)
+                    .build());
         }
 
         return contextFiles;
@@ -243,11 +284,10 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Skip first cycle: data tables aren't populated until producer recipes' visitors
-                // run, and generate also defers to cycle 2. Request another cycle so the scheduler
-                // doesn't terminate the loop after cycle 1 when no other recipe makes changes.
+                // Fill placeholders generated in cycle 1 with real content read
+                // from the now-populated data table store. Done from cycle 2
+                // onward (the store is only readable after cycle 1's edit phase).
                 if (ctx.getCycle() == 1) {
-                    ctx.putMessage(Prethink.CYCLE_TRIGGER, true);
                     return tree;
                 }
                 if (tree instanceof PlainText) {
@@ -255,21 +295,35 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                     Path path = pt.getSourcePath();
 
                     if (path.startsWith(CONTEXT_DIR)) {
-                        // Reuse the once-rendered output instead of re-aggregating per file.
-                        renderOnce(acc, ctx);
                         String filename = path.getFileName().toString();
 
-                        // Update CSV files
-                        if (filename.endsWith(".csv")) {
+                        // Fill (or remove) CSV files for tables this recipe owns.
+                        // The content is aggregated + rendered exactly once and
+                        // reused, rather than re-read from the store per file.
+                        if (filename.endsWith(".csv") && ownsCsvFile(filename)) {
+                            renderOnce(acc, ctx);
                             Map<String, String> csvByFilename = acc.csvByFilename;
                             String newContent = csvByFilename == null ? null : csvByFilename.get(filename);
-                            if (newContent != null && !newContent.equals(pt.getText())) {
+                            // Delete the cycle-1 placeholder when the table produced
+                            // no rows, so empty tables don't leave behind a
+                            // headers-only CSV (matching GenerateCalmArchitecture,
+                            // which deletes its placeholder when there's no data).
+                            if (newContent == null) {
+                                return null;
+                            }
+                            if (!newContent.equals(pt.getText())) {
                                 return pt.withText(newContent);
                             }
                         } else if (filename.equals(toKebabCase(displayName) + ".md")) {
-                            // Update markdown file
+                            // Fill (or remove) the markdown description file. The
+                            // markdown documents only the tables that produced rows;
+                            // it is null when none did, so the placeholder is deleted.
+                            renderOnce(acc, ctx);
                             String markdown = acc.markdown;
-                            if (markdown != null && !markdown.equals(pt.getText())) {
+                            if (markdown == null) {
+                                return null;
+                            }
+                            if (!markdown.equals(pt.getText())) {
                                 return pt.withText(markdown);
                             }
                         }
@@ -278,6 +332,30 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                 return tree;
             }
         };
+    }
+
+    /**
+     * Whether the given CSV filename corresponds to one of the data tables this
+     * ExportContext instance is configured to export. Without this guard, every
+     * ExportContext instance in a composite would try to fill every other
+     * instance's CSVs (they all share the same getVisitor shape), producing
+     * empty/incorrect content.
+     */
+    private boolean ownsCsvFile(String filename) {
+        return fqnForCsvFile(filename) != null;
+    }
+
+    /**
+     * The configured data table FQN that produces the given CSV filename, or
+     * {@code null} if this ExportContext instance does not own that file.
+     */
+    private @Nullable String fqnForCsvFile(String filename) {
+        for (String tableFqn : dataTables) {
+            if (tableToFilename(tableFqn).equals(filename)) {
+                return tableFqn;
+            }
+        }
+        return null;
     }
 
     /**
@@ -356,6 +434,33 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             }
         }
         return result.toString();
+    }
+
+    /**
+     * Render the header-only CSV for a data table identified by its fully
+     * qualified class name, reading the column display names from the table's
+     * {@code $Row} class. Used to write cycle-1 placeholder CSVs before any rows
+     * exist in the store. Returns the empty string when the {@code $Row} class
+     * cannot be resolved on the current classpath.
+     */
+    private String getHeadersFromTableFqn(String tableFqn) {
+        try {
+            Class<?> rowClass = Class.forName(tableFqn + "$Row");
+            List<Field> columnFields = getColumnFields(rowClass);
+
+            StringWriter stringWriter = new StringWriter();
+            CsvWriter writer = new CsvWriter(stringWriter, new CsvWriterSettings());
+
+            String[] headers = columnFields.stream()
+                    .map(f -> f.getAnnotation(Column.class).displayName())
+                    .toArray(String[]::new);
+            writer.writeHeaders(headers);
+            writer.close();
+
+            return stringWriter.toString();
+        } catch (ClassNotFoundException e) {
+            return "";
+        }
     }
 
     private List<Field> getColumnFields(Class<?> rowClass) {
