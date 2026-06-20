@@ -17,13 +17,16 @@ package org.openrewrite.prethink;
 
 import lombok.Getter;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.openrewrite.*;
+import org.openrewrite.config.CompositeRecipe;
 import org.openrewrite.internal.InMemoryLargeSourceSet;
 import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 import org.openrewrite.text.PlainText;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -276,6 +279,190 @@ class ExportContextTest implements RewriteTest {
         assertThat(((PlainText) csv).getText()).contains("com.example.FooTest").contains("testFoo()");
     }
 
+    /**
+     * Mirrors the production discovery recipes (e.g. FindProjectMetadata,
+     * FindServiceEndpoints) that put their data table into a shared community
+     * {@code group}. The group changes the {@link DataTableStore} bucket key,
+     * which is the dimension that distinguishes the failing production path
+     * (a {@link CsvDataTableStore}) from the in-memory test path.
+     */
+    @Getter
+    public static class PopulateGroupedTestMapping extends Recipe {
+        transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
+
+        String displayName = "Populate grouped test mapping";
+        String description = "Populates a grouped TestMapping data table.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("FooTest.java")) {
+                        testMapping.insertRow(ctx, new TestMapping.Row(
+                          "src/test/java/FooTest.java",
+                          "com.example.FooTest",
+                          "testFoo()",
+                          "src/main/java/Foo.java",
+                          "com.example.Foo",
+                          "foo()",
+                          null,
+                          null
+                        ));
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    /**
+     * Reproduces the production failure: a composite where a data table is
+     * populated in cycle 1 and {@link ExportContext} must export it, run against
+     * a {@link CsvDataTableStore} (the Moderne CLI's {@code mod run} store) with
+     * the CLI's cycle semantics ({@code maxCycles=3, minCycles=1}).
+     * <p>
+     * The default RewriteTest harness hides this bug because it inflates
+     * {@code minCycles} to {@code expectedCyclesThatMakeChanges + 1}, forcing a
+     * second cycle the production run never gets unless a recipe makes a file
+     * change in cycle 1. There is deliberately <em>no</em> external cycle trigger
+     * here: with the fix, {@link ExportContext} generates a placeholder in cycle 1
+     * (a real change), which both triggers cycle 2 and gives it a file to fill —
+     * the only file-producing pattern the V3 edit overlay carries through.
+     */
+    @Test
+    void exportsFromCsvDataTableStoreWithProductionCycleSemantics(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx)
+          .setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateGroupedTestMapping(),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping")
+          )
+        ));
+
+        // Drive the run exactly as the Moderne CLI does: maxCycles=3, minCycles=1.
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder()
+            .sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}")
+            .build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+
+        SourceFile generated = run.getChangeset().getAllResults().stream()
+          .map(Result::getAfter)
+          .filter(java.util.Objects::nonNull)
+          .filter(sf -> sf.getSourcePath().equals(Path.of(".moderne/context/test-mapping.csv")))
+          .findFirst()
+          .orElse(null);
+
+        assertThat(generated)
+          .as("ExportContext should generate test-mapping.csv from the CsvDataTableStore-backed run")
+          .isNotNull();
+        assertThat(generated.printAll())
+          .contains("com.example.FooTest")
+          .contains("testFoo()");
+    }
+
+    /**
+     * Populates the CALM-architecture data tables (grouped {@code "architecture"})
+     * the same way the production discovery recipes do, so that the real
+     * {@link UpdatePrethinkContext} composite has data to both generate the CALM
+     * JSON and export the architecture CSVs from.
+     */
+    @Getter
+    public static class PopulateArchitectureTables extends Recipe {
+        transient org.openrewrite.prethink.table.ServiceEndpoints serviceEndpoints =
+          new org.openrewrite.prethink.table.ServiceEndpoints(this).withGroup("architecture");
+        transient org.openrewrite.prethink.table.ProjectMetadata projectMetadata =
+          new org.openrewrite.prethink.table.ProjectMetadata(this).withGroup("architecture");
+
+        String displayName = "Populate architecture tables";
+        String description = "Populates ServiceEndpoints and ProjectMetadata grouped data tables.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("UserController.java")) {
+                        projectMetadata.insertRow(ctx, new org.openrewrite.prethink.table.ProjectMetadata.Row(
+                          "pom.xml", "demo-app", "com.example", "Demo", "Demo app", "1.0.0", null, null));
+                        serviceEndpoints.insertRow(ctx, new org.openrewrite.prethink.table.ServiceEndpoints.Row(
+                          "endpoint:com.example.UserController#listUsers()",
+                          "src/main/java/com/example/UserController.java",
+                          "com.example.UserController",
+                          "listUsers",
+                          "GET",
+                          "/api/users",
+                          "application/json",
+                          "",
+                          "Spring",
+                          "listUsers()"));
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    /**
+     * The end-to-end reproduction of the production bug: running the real
+     * {@link UpdatePrethinkContext} composite (which both generates the CALM
+     * JSON via {@code GenerateCalmArchitecture} and exports architecture CSVs via
+     * {@link ExportContext}) against a {@link CsvDataTableStore} with the Moderne
+     * CLI's cycle semantics ({@code maxCycles=3, minCycles=1}).
+     * <p>
+     * Before the fix, only {@code calm-architecture.json} was generated; the
+     * architecture CSVs (e.g. {@code service-endpoints.csv}) were silently
+     * dropped because {@link ExportContext} generated them one cycle later than
+     * {@code GenerateCalmArchitecture}.
+     */
+    @Test
+    void realCompositeExportsArchitectureCsvAlongsideCalmJson(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx)
+          .setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateArchitectureTables(),
+          new UpdatePrethinkContext(null)
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder()
+            .sourcePath(Path.of("src/main/java/com/example/UserController.java"))
+            .text("package com.example;\npublic class UserController {}")
+            .build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+
+        java.util.Map<Path, SourceFile> generated = new java.util.HashMap<>();
+        for (Result result : run.getChangeset().getAllResults()) {
+            if (result.getAfter() != null) {
+                generated.put(result.getAfter().getSourcePath(), result.getAfter());
+            }
+        }
+
+        // CALM JSON is generated today (the working baseline)
+        assertThat(generated).containsKey(Path.of(".moderne/context/calm-architecture.json"));
+
+        // The architecture CSV must also be generated (this is the bug)
+        SourceFile csv = generated.get(Path.of(".moderne/context/service-endpoints.csv"));
+        assertThat(csv)
+          .as("ExportContext should generate service-endpoints.csv alongside the CALM JSON")
+          .isNotNull();
+        assertThat(csv.printAll()).contains("com.example.UserController");
+    }
+
     @Test
     void aggregatesRowsFromMultipleInstancesOfSameDataTable() {
         rewriteRun(
@@ -290,8 +477,10 @@ class ExportContextTest implements RewriteTest {
                 List.of("org.openrewrite.prethink.table.TestMapping")
               )
             )
-            .cycles(2)
-            .expectedCyclesThatMakeChanges(1),
+            // ExportContext now generates placeholder context files in cycle 1
+            // and fills them with data-table content in cycle 2.
+            .cycles(4)
+            .expectedCyclesThatMakeChanges(3),
           // Source files that trigger the two fake recipes
           text(
             "package com.example;\npublic class FooTest {}",

@@ -109,69 +109,57 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
 
     @Override
     public Collection<SourceFile> generate(Accumulator acc, ExecutionContext ctx) {
-        // Skip first cycle - let data table producers complete
-        if (ctx.getCycle() == 1) {
+        // The data tables this recipe exports are populated by sibling recipes
+        // during the *edit* phase of cycle 1, which runs after this generate
+        // phase. So the store is still empty here in cycle 1 — we cannot read
+        // rows yet. Instead, generate placeholder files in cycle 1 (one CSV per
+        // configured data table, plus the markdown) and fill them with real
+        // content from the store in cycle 2 via getVisitor().
+        //
+        // This mirrors GenerateCalmArchitecture, and is deliberate: generating a
+        // file in cycle 1 and editing it in cycle 2 is the only file-producing
+        // pattern the Moderne CLI's V3 edit overlay carries through reliably.
+        // Generating a brand-new file in cycle 2 (the previous behavior of this
+        // recipe) is dropped from the changeset on real multi-file repositories,
+        // so no topic CSVs were ever written even though their data tables were
+        // populated. Generating the placeholder in cycle 1 also drives the second
+        // cycle on its own (a generated file is a change), so the export no longer
+        // depends on a sibling recipe making a change to trigger cycle 2.
+        if (ctx.getCycle() != 1 || dataTables.isEmpty()) {
             return emptyList();
         }
 
         List<SourceFile> contextFiles = new ArrayList<>();
 
-        // Access DataTableStore here - after preceding recipes have populated it
-        DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
-
-        // Aggregate rows from all instances of the same DataTable class,
-        // since multiple recipes may populate the same data table type
-        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
-        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-        aggregateMatchingTables(store, tablesByFqn, rowsByFqn);
-
-        if (tablesByFqn.isEmpty()) {
-            return contextFiles;
+        // One placeholder CSV per configured data table. The header row comes
+        // from the Row class schema, so it is available without any rows.
+        boolean anyTableResolvable = false;
+        for (String tableFqn : dataTables) {
+            String headers = getHeadersFromTableFqn(tableFqn);
+            // Skip tables whose Row class can't be resolved on this classpath —
+            // we can't produce a meaningful CSV (and don't want an empty file).
+            if (headers.isEmpty()) {
+                continue;
+            }
+            anyTableResolvable = true;
+            Path filePath = CONTEXT_DIR.resolve(tableToFilename(tableFqn));
+            if (acc.getExistingContextPaths().contains(filePath)) {
+                continue;
+            }
+            contextFiles.add(PlainText.builder()
+                    .text(headers)
+                    .sourcePath(filePath)
+                    .build());
         }
 
-        // Collect the data tables we're exporting for the markdown file
-        List<DataTableInfo> exportedTables = new ArrayList<>();
-
-        for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
-            String tableFqn = tableEntry.getKey();
-            DataTable<?> table = tableEntry.getValue();
-            List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
-
-            String filename = tableToFilename(tableFqn);
-            String csvContent = exportToCsv(table, rows);
-            Path filePath = CONTEXT_DIR.resolve(filename);
-
-            // Collect table info for markdown
-            exportedTables.add(new DataTableInfo(
-                    table.getDisplayName(),
-                    table.getDescription(),
-                    filename,
-                    getColumnInfo(table, rows)
-            ));
-
-            // Only generate if file doesn't already exist
-            if (!acc.getExistingContextPaths().contains(filePath)) {
-                PlainText csvFile = PlainText.builder()
-                        .text(csvContent)
-                        .sourcePath(filePath)
-                        .build();
-                contextFiles.add(csvFile);
-            }
-        }
-
-        // Generate the markdown description file
-        if (!exportedTables.isEmpty()) {
-            String mdFilename = toKebabCase(displayName) + ".md";
-            Path mdPath = CONTEXT_DIR.resolve(mdFilename);
-
-            if (!acc.getExistingContextPaths().contains(mdPath)) {
-                String mdContent = generateMarkdown(exportedTables);
-                PlainText mdFile = PlainText.builder()
-                        .text(mdContent)
-                        .sourcePath(mdPath)
-                        .build();
-                contextFiles.add(mdFile);
-            }
+        // Placeholder markdown description file (only when at least one table
+        // can actually be exported).
+        Path mdPath = CONTEXT_DIR.resolve(toKebabCase(displayName) + ".md");
+        if (anyTableResolvable && !acc.getExistingContextPaths().contains(mdPath)) {
+            contextFiles.add(PlainText.builder()
+                    .text("# " + displayName + "\n")
+                    .sourcePath(mdPath)
+                    .build());
         }
 
         return contextFiles;
@@ -182,11 +170,10 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return new TreeVisitor<Tree, ExecutionContext>() {
             @Override
             public @Nullable Tree visit(@Nullable Tree tree, ExecutionContext ctx) {
-                // Skip first cycle: data tables aren't populated until producer recipes' visitors
-                // run, and generate also defers to cycle 2. Request another cycle so the scheduler
-                // doesn't terminate the loop after cycle 1 when no other recipe makes changes.
+                // Fill placeholders generated in cycle 1 with real content read
+                // from the now-populated data table store. Done from cycle 2
+                // onward (the store is only readable after cycle 1's edit phase).
                 if (ctx.getCycle() == 1) {
-                    ctx.putMessage(Prethink.CYCLE_TRIGGER, true);
                     return tree;
                 }
                 if (tree instanceof PlainText) {
@@ -196,39 +183,47 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                     if (path.startsWith(CONTEXT_DIR)) {
                         String filename = path.getFileName().toString();
 
-                        // Update CSV files
-                        if (filename.endsWith(".csv")) {
+                        // Fill CSV files for tables this recipe owns
+                        if (filename.endsWith(".csv") && ownsCsvFile(filename)) {
                             String newContent = getCsvContentForFile(filename, ctx);
+                            // Leave the headers-only placeholder in place when the
+                            // table produced no rows (newContent == null means no
+                            // matching table is registered in the store at all).
                             if (newContent != null && !newContent.equals(pt.getText())) {
                                 return pt.withText(newContent);
                             }
                         }
 
-                        // Update markdown file
+                        // Fill the markdown description file
                         String expectedMdFilename = toKebabCase(displayName) + ".md";
                         if (filename.equals(expectedMdFilename)) {
                             DataTableStore store2 = DataTableExecutionContextView.view(ctx).getDataTableStore();
-                            {
-                                Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
-                                Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-                                aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
-                                List<DataTableInfo> exportedTables = new ArrayList<>();
-                                for (Map.Entry<String, DataTable<?>> tableEntry : tablesByFqn.entrySet()) {
-                                    String tableFqn = tableEntry.getKey();
-                                    DataTable<?> table = tableEntry.getValue();
-                                    List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
-                                    exportedTables.add(new DataTableInfo(
-                                            table.getDisplayName(),
-                                            table.getDescription(),
-                                            tableToFilename(tableFqn),
-                                            getColumnInfo(table, rows)
-                                    ));
+                            Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
+                            Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
+                            aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
+                            List<DataTableInfo> exportedTables = new ArrayList<>();
+                            // Include every configured table whose schema we can
+                            // resolve, so it is documented even when it produced
+                            // no rows. Skip tables whose Row class isn't on the
+                            // classpath (same ones generate() skipped).
+                            for (String tableFqn : dataTables) {
+                                List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
+                                List<ColumnInfo> columns = getColumnInfoForFqn(tableFqn, rows);
+                                if (columns.isEmpty()) {
+                                    continue;
                                 }
-                                if (!exportedTables.isEmpty()) {
-                                    String newContent = generateMarkdown(exportedTables);
-                                    if (!newContent.equals(pt.getText())) {
-                                        return pt.withText(newContent);
-                                    }
+                                DataTable<?> table = tablesByFqn.get(tableFqn);
+                                exportedTables.add(new DataTableInfo(
+                                        table != null ? table.getDisplayName() : simpleName(tableFqn),
+                                        table != null ? table.getDescription() : "",
+                                        tableToFilename(tableFqn),
+                                        columns
+                                ));
+                            }
+                            if (!exportedTables.isEmpty()) {
+                                String newContent = generateMarkdown(exportedTables);
+                                if (!newContent.equals(pt.getText())) {
+                                    return pt.withText(newContent);
                                 }
                             }
                         }
@@ -237,6 +232,22 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                 return tree;
             }
         };
+    }
+
+    /**
+     * Whether the given CSV filename corresponds to one of the data tables this
+     * ExportContext instance is configured to export. Without this guard, every
+     * ExportContext instance in a composite would try to fill every other
+     * instance's CSVs (they all share the same getVisitor shape), producing
+     * empty/incorrect content.
+     */
+    private boolean ownsCsvFile(String filename) {
+        for (String tableFqn : dataTables) {
+            if (tableToFilename(tableFqn).equals(filename)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -280,7 +291,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return sb.toString();
     }
 
-    private List<ColumnInfo> getColumnInfo(DataTable<?> table, List<?> rows) {
+    private List<ColumnInfo> getColumnInfoForFqn(String tableFqn, List<?> rows) {
         List<ColumnInfo> columns = new ArrayList<>();
 
         Class<?> rowClass;
@@ -288,7 +299,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             rowClass = rows.get(0).getClass();
         } else {
             try {
-                rowClass = Class.forName(table.getClass().getName() + "$Row");
+                rowClass = Class.forName(tableFqn + "$Row");
             } catch (ClassNotFoundException e) {
                 return columns;
             }
@@ -415,9 +426,19 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
     }
 
     private String getHeadersFromTable(DataTable<?> table) {
-        // Get the Row class from the DataTable's generic type
+        return getHeadersFromTableFqn(table.getClass().getName());
+    }
+
+    /**
+     * Render the header-only CSV for a data table identified by its fully
+     * qualified class name, reading the column display names from the table's
+     * {@code $Row} class. Used to write cycle-1 placeholder CSVs before any rows
+     * exist in the store. Returns the empty string when the {@code $Row} class
+     * cannot be resolved on the current classpath.
+     */
+    private String getHeadersFromTableFqn(String tableFqn) {
         try {
-            Class<?> rowClass = Class.forName(table.getClass().getName() + "$Row");
+            Class<?> rowClass = Class.forName(tableFqn + "$Row");
             List<Field> columnFields = getColumnFields(rowClass);
 
             StringWriter stringWriter = new StringWriter();
@@ -433,6 +454,10 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         } catch (ClassNotFoundException e) {
             return "";
         }
+    }
+
+    private static String simpleName(String tableFqn) {
+        return tableFqn.substring(tableFqn.lastIndexOf('.') + 1);
     }
 
     private List<Field> getColumnFields(Class<?> rowClass) {
