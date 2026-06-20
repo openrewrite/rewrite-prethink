@@ -27,6 +27,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Stream;
 
 import static java.util.Collections.emptyList;
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
@@ -79,14 +80,127 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return true;
     }
 
-    @Value
     public static class Accumulator {
-        Set<Path> existingContextPaths;
+        private final Set<Path> existingContextPaths = new HashSet<>();
+
+        public Set<Path> getExistingContextPaths() {
+            return existingContextPaths;
+        }
+
+        // The fill-phase output, aggregated and rendered exactly once (in cycle 2+,
+        // when the store is populated) and reused across every visited context file
+        // instead of re-reading the data tables per file. Safe to cache because the
+        // producing recipes stop writing after cycle 1. A table that produced no
+        // rows is absent from the map so getVisitor() deletes its cycle-1
+        // placeholder. Published last via volatile so readers see a fully-built map.
+        @Nullable
+        volatile Map<String, String> csvByFilename;
+        @Nullable
+        volatile String markdown;
     }
 
     @Override
     public Accumulator getInitialValue(ExecutionContext ctx) {
-        return new Accumulator(new HashSet<>());
+        return new Accumulator();
+    }
+
+    /**
+     * Aggregate and render this context's tables exactly once, caching the result
+     * on the accumulator; later calls are no-ops. Only invoked from cycle 2+ (the
+     * store is empty during cycle 1), so it always reads populated data tables.
+     * Tables that produced no rows are omitted from {@link Accumulator#csvByFilename}
+     * so their cycle-1 placeholder is deleted in {@link #getVisitor}.
+     */
+    private void renderOnce(Accumulator acc, ExecutionContext ctx) {
+        if (acc.csvByFilename != null) {
+            return;
+        }
+        synchronized (acc) {
+            if (acc.csvByFilename != null) {
+                return;
+            }
+            DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
+
+            // Multiple recipes can write the same table type, so collect every instance to concatenate its rows.
+            Map<String, List<DataTable<?>>> instancesByFqn = new HashMap<>();
+            for (DataTable<?> dt : store.getDataTables()) {
+                String tableFqn = dt.getClass().getName();
+                if (dataTables.contains(tableFqn)) {
+                    instancesByFqn.computeIfAbsent(tableFqn, k -> new ArrayList<>()).add(dt);
+                }
+            }
+
+            Map<String, String> rendered = new LinkedHashMap<>();
+            List<DataTableInfo> exportedTables = new ArrayList<>();
+            // Iterate in the declared dataTables order for deterministic output.
+            for (String tableFqn : dataTables) {
+                List<DataTable<?>> instances = instancesByFqn.get(tableFqn);
+                if (instances == null || instances.isEmpty()) {
+                    continue;
+                }
+                DataTable<?> representative = instances.get(0);
+                String csv = streamToCsv(store, representative, instances);
+                // No rows across any instance: omit so the cycle-1 placeholder is
+                // deleted (matching GenerateCalmArchitecture, which removes its
+                // placeholder when there is no data), and skip it in the markdown.
+                if (csv == null) {
+                    continue;
+                }
+                rendered.put(tableToFilename(tableFqn), csv);
+                exportedTables.add(new DataTableInfo(
+                        representative.getDisplayName(),
+                        representative.getDescription(),
+                        tableToFilename(tableFqn),
+                        getColumnInfo(representative)
+                ));
+            }
+            acc.markdown = exportedTables.isEmpty() ? null : generateMarkdown(exportedTables);
+            // Publish the map last so readers see it (and markdown) fully built — volatile happens-before.
+            acc.csvByFilename = rendered;
+        }
+    }
+
+    /**
+     * Stream each row straight to the writer so a full table is never held in
+     * memory. Returns {@code null} when no instance produced any row, signalling
+     * the caller to drop the table (so empty tables don't leave a headers-only
+     * CSV behind).
+     */
+    @SuppressWarnings("unchecked")
+    private @Nullable String streamToCsv(DataTableStore store, DataTable<?> representative, List<DataTable<?>> instances) {
+        List<Field> columnFields = getColumnFields(representative.getType());
+        String[] headers = columnFields.stream()
+                .map(f -> f.getAnnotation(Column.class).displayName())
+                .toArray(String[]::new);
+
+        StringWriter stringWriter = new StringWriter();
+        CsvWriter writer = new CsvWriter(stringWriter, new CsvWriterSettings());
+        writer.writeHeaders(headers);
+
+        boolean[] wroteRow = {false};
+        String[] values = new String[columnFields.size()];
+        for (DataTable<?> instance : instances) {
+            Class<? extends DataTable<Object>> dtClass = (Class<? extends DataTable<Object>>) instance.getClass();
+            try (Stream<Object> rows = store.getRows(dtClass, instance.getGroup())) {
+                rows.forEach(row -> {
+                    wroteRow[0] = true;
+                    for (int i = 0; i < columnFields.size(); i++) {
+                        Field field = columnFields.get(i);
+                        try {
+                            field.setAccessible(true);
+                            Object value = field.get(row);
+                            values[i] = value == null ? "" : value.toString();
+                        } catch (IllegalAccessException e) {
+                            values[i] = "";
+                        }
+                    }
+                    writer.writeRow((Object[]) values);
+                });
+            }
+        }
+
+        writer.close();
+        return wroteRow[0] ? stringWriter.toString() : null;
     }
 
     @Override
@@ -183,59 +297,34 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                     if (path.startsWith(CONTEXT_DIR)) {
                         String filename = path.getFileName().toString();
 
-                        DataTableStore store2 = DataTableExecutionContextView.view(ctx).getDataTableStore();
-                        Map<String, DataTable<?>> tablesByFqn = new LinkedHashMap<>();
-                        Map<String, List<Object>> rowsByFqn = new LinkedHashMap<>();
-                        aggregateMatchingTables(store2, tablesByFqn, rowsByFqn);
-
-                        // Fill (or remove) CSV files for tables this recipe owns
+                        // Fill (or remove) CSV files for tables this recipe owns.
+                        // The content is aggregated + rendered exactly once and
+                        // reused, rather than re-read from the store per file.
                         if (filename.endsWith(".csv") && ownsCsvFile(filename)) {
-                            String ownedFqn = fqnForCsvFile(filename);
-                            List<?> rows = ownedFqn == null ? emptyList() : rowsByFqn.getOrDefault(ownedFqn, emptyList());
+                            renderOnce(acc, ctx);
+                            Map<String, String> csvByFilename = acc.csvByFilename;
+                            String newContent = csvByFilename == null ? null : csvByFilename.get(filename);
                             // Delete the cycle-1 placeholder when the table produced
                             // no rows, so empty tables don't leave behind a
                             // headers-only CSV (matching GenerateCalmArchitecture,
                             // which deletes its placeholder when there's no data).
-                            if (rows.isEmpty()) {
+                            if (newContent == null) {
                                 return null;
                             }
-                            String newContent = exportToCsv(tablesByFqn.get(ownedFqn), rows);
                             if (!newContent.equals(pt.getText())) {
                                 return pt.withText(newContent);
                             }
-                        }
-
-                        // Fill (or remove) the markdown description file
-                        String expectedMdFilename = toKebabCase(displayName) + ".md";
-                        if (filename.equals(expectedMdFilename)) {
-                            List<DataTableInfo> exportedTables = new ArrayList<>();
-                            // Document only the tables that actually produced rows,
-                            // since the empty ones' CSVs are removed above.
-                            for (String tableFqn : dataTables) {
-                                List<?> rows = rowsByFqn.getOrDefault(tableFqn, emptyList());
-                                if (rows.isEmpty()) {
-                                    continue;
-                                }
-                                List<ColumnInfo> columns = getColumnInfoForFqn(tableFqn, rows);
-                                if (columns.isEmpty()) {
-                                    continue;
-                                }
-                                DataTable<?> table = tablesByFqn.get(tableFqn);
-                                exportedTables.add(new DataTableInfo(
-                                        table != null ? table.getDisplayName() : simpleName(tableFqn),
-                                        table != null ? table.getDescription() : "",
-                                        tableToFilename(tableFqn),
-                                        columns
-                                ));
-                            }
-                            // Delete the placeholder markdown when no configured
-                            // table produced any rows.
-                            if (exportedTables.isEmpty()) {
+                        } else if (filename.equals(toKebabCase(displayName) + ".md")) {
+                            // Fill (or remove) the markdown description file. The
+                            // markdown documents only the tables that produced rows;
+                            // it is null when none did, so the placeholder is deleted.
+                            renderOnce(acc, ctx);
+                            String markdown = acc.markdown;
+                            if (markdown == null) {
                                 return null;
                             }
-                            String newContent = generateMarkdown(exportedTables);
-                            if (!newContent.equals(pt.getText())) {
-                                return pt.withText(newContent);
+                            if (!markdown.equals(pt.getText())) {
+                                return pt.withText(markdown);
                             }
                         }
                     }
@@ -310,58 +399,15 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return sb.toString();
     }
 
-    private List<ColumnInfo> getColumnInfoForFqn(String tableFqn, List<?> rows) {
+    private List<ColumnInfo> getColumnInfo(DataTable<?> table) {
         List<ColumnInfo> columns = new ArrayList<>();
-
-        Class<?> rowClass;
-        if (!rows.isEmpty()) {
-            rowClass = rows.get(0).getClass();
-        } else {
-            try {
-                rowClass = Class.forName(tableFqn + "$Row");
-            } catch (ClassNotFoundException e) {
-                return columns;
-            }
-        }
-
-        for (Field field : rowClass.getDeclaredFields()) {
+        for (Field field : table.getType().getDeclaredFields()) {
             Column columnAnnotation = field.getAnnotation(Column.class);
             if (columnAnnotation != null) {
                 columns.add(new ColumnInfo(columnAnnotation.displayName(), columnAnnotation.description()));
             }
         }
-
         return columns;
-    }
-
-    /**
-     * Aggregate rows from all DataTable instances of the same class into a single list per class.
-     * When multiple recipes produce the same DataTable type (e.g., FindNodeTestCoverage and
-     * FindTestCoverage both produce TestMapping), this ensures all rows are combined.
-     */
-    @SuppressWarnings({"unchecked"})
-    private void aggregateMatchingTables(DataTableStore store,
-                                         Map<String, DataTable<?>> tablesByFqn,
-                                         Map<String, List<Object>> rowsByFqn) {
-        // First pass: collect all matching tables (order from store is non-deterministic)
-        Map<String, DataTable<?>> unordered = new HashMap<>();
-        Map<String, List<Object>> unorderedRows = new HashMap<>();
-        for (DataTable<?> dt : store.getDataTables()) {
-            String tableFqn = dt.getClass().getName();
-            if (dataTables.contains(tableFqn)) {
-                unordered.putIfAbsent(tableFqn, dt);
-                List<Object> rows = unorderedRows.computeIfAbsent(tableFqn, k -> new ArrayList<>());
-                Class<? extends DataTable<Object>> dtClass = (Class<? extends DataTable<Object>>) dt.getClass();
-                store.getRows(dtClass, dt.getGroup()).forEach(rows::add);
-            }
-        }
-        // Second pass: insert in dataTables list order for deterministic output
-        for (String fqn : dataTables) {
-            if (unordered.containsKey(fqn)) {
-                tablesByFqn.put(fqn, unordered.get(fqn));
-                rowsByFqn.put(fqn, unorderedRows.getOrDefault(fqn, new ArrayList<>()));
-            }
-        }
     }
 
     private String tableToFilename(String tableFqn) {
@@ -390,47 +436,6 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         return result.toString();
     }
 
-    private String exportToCsv(DataTable<?> table, List<?> rows) {
-        if (rows.isEmpty()) {
-            return getHeadersFromTable(table);
-        }
-
-        Class<?> rowClass = rows.get(0).getClass();
-        List<Field> columnFields = getColumnFields(rowClass);
-
-        StringWriter stringWriter = new StringWriter();
-        CsvWriter writer = new CsvWriter(stringWriter, new CsvWriterSettings());
-
-        // Write headers
-        String[] headers = columnFields.stream()
-                .map(f -> f.getAnnotation(Column.class).displayName())
-                .toArray(String[]::new);
-        writer.writeHeaders(headers);
-
-        // Write rows
-        for (Object row : rows) {
-            String[] values = new String[columnFields.size()];
-            for (int i = 0; i < columnFields.size(); i++) {
-                Field field = columnFields.get(i);
-                try {
-                    field.setAccessible(true);
-                    Object value = field.get(row);
-                    values[i] = value == null ? "" : value.toString();
-                } catch (IllegalAccessException e) {
-                    values[i] = "";
-                }
-            }
-            writer.writeRow((Object[]) values);
-        }
-
-        writer.close();
-        return stringWriter.toString();
-    }
-
-    private String getHeadersFromTable(DataTable<?> table) {
-        return getHeadersFromTableFqn(table.getClass().getName());
-    }
-
     /**
      * Render the header-only CSV for a data table identified by its fully
      * qualified class name, reading the column display names from the table's
@@ -456,10 +461,6 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         } catch (ClassNotFoundException e) {
             return "";
         }
-    }
-
-    private static String simpleName(String tableFqn) {
-        return tableFqn.substring(tableFqn.lastIndexOf('.') + 1);
     }
 
     private List<Field> getColumnFields(Class<?> rowClass) {
