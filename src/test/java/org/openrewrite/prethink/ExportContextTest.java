@@ -372,6 +372,104 @@ class ExportContextTest implements RewriteTest {
     }
 
     /**
+     * When a configured data table produces no rows, the cycle-1 placeholder CSV
+     * (and the markdown) must be removed in cycle 2 rather than left behind as a
+     * headers-only file, mirroring GenerateCalmArchitecture's deletion of its
+     * placeholder when there is no data.
+     */
+    @Test
+    void emptyTableLeavesNoCsvOrMarkdown(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx)
+          .setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        // No producer populates TestMapping, so the table stays empty.
+        Recipe composite = new CompositeRecipe(List.of(
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping")
+          )
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder()
+            .sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}")
+            .build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+
+        List<String> remaining = run.getChangeset().getAllResults().stream()
+          .map(Result::getAfter)
+          .filter(java.util.Objects::nonNull)
+          .map(sf -> sf.getSourcePath().toString())
+          .filter(p -> p.startsWith(".moderne/context"))
+          .collect(java.util.stream.Collectors.toList());
+
+        assertThat(remaining)
+          .as("an empty data table must not leave behind a headers-only CSV or markdown")
+          .isEmpty();
+    }
+
+    /**
+     * In an ExportContext bundling multiple tables, only the tables that produced
+     * rows are exported: the empty table's placeholder CSV is removed and the
+     * markdown documents only the populated table.
+     */
+    @Test
+    void onlyExportsTablesWithRows(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx)
+          .setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        // TestMapping gets rows; CodingConventions has no producer (stays empty).
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateGroupedTestMapping(),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            java.util.Arrays.asList(
+              "org.openrewrite.prethink.table.TestMapping",
+              "org.openrewrite.prethink.table.CodingConventions"
+            )
+          )
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder()
+            .sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}")
+            .build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+
+        java.util.Map<Path, SourceFile> generated = new java.util.HashMap<>();
+        for (Result result : run.getChangeset().getAllResults()) {
+            if (result.getAfter() != null) {
+                generated.put(result.getAfter().getSourcePath(), result.getAfter());
+            }
+        }
+
+        // The populated table is exported.
+        assertThat(generated).containsKey(Path.of(".moderne/context/test-mapping.csv"));
+        assertThat(generated.get(Path.of(".moderne/context/test-mapping.csv")).printAll())
+          .contains("com.example.FooTest");
+
+        // The empty table leaves no CSV behind.
+        assertThat(generated).doesNotContainKey(Path.of(".moderne/context/coding-conventions.csv"));
+
+        // The markdown documents only the populated table.
+        SourceFile md = generated.get(Path.of(".moderne/context/test-coverage.md"));
+        assertThat(md).isNotNull();
+        assertThat(md.printAll())
+          .contains("test-mapping.csv")
+          .doesNotContain("coding-conventions.csv");
+    }
+
+    /**
      * Populates the CALM-architecture data tables (grouped {@code "architecture"})
      * the same way the production discovery recipes do, so that the real
      * {@link UpdatePrethinkContext} composite has data to both generate the CALM
