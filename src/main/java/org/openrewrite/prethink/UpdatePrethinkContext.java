@@ -87,6 +87,11 @@ public class UpdatePrethinkContext extends Recipe {
                         )
                 ))
 
+                // Remove context files left behind by a previous recipe version, before the agent
+                // config advertises them. Runs after every ExportContext (the discovery/export
+                // recipes and the Architecture export above) so the kept-file set is complete.
+                .recipe(new RemoveStaleContextFiles())
+
                 // Update agent config files
                 .recipe(new UpdateAgentConfig(targetConfigFile))
 

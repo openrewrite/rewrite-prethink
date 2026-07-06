@@ -27,6 +27,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 import static java.util.Collections.emptyList;
@@ -155,6 +156,18 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
                 ));
             }
             acc.markdown = exportedTables.isEmpty() ? null : generateMarkdown(exportedTables);
+
+            // Advertise every file this context actually produces so RemoveStaleContextFiles
+            // knows to keep them. Only tables that yielded rows are in `rendered`, and the
+            // markdown is only kept when at least one table produced rows — matching exactly
+            // the files getVisitor() writes (rather than deletes), so nothing live is swept.
+            Set<String> keptContextFiles = ctx.computeMessageIfAbsent(
+                    Prethink.KEPT_CONTEXT_FILES, k -> ConcurrentHashMap.<String>newKeySet());
+            keptContextFiles.addAll(rendered.keySet());
+            if (acc.markdown != null) {
+                keptContextFiles.add(getContextFilename());
+            }
+
             // Publish the map last so readers see it (and markdown) fully built — volatile happens-before.
             acc.csvByFilename = rendered;
         }
