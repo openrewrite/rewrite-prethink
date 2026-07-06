@@ -30,41 +30,21 @@ import java.util.Set;
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**
- * Remove stale Prethink context files that no live context produces.
- * <p>
- * Each Prethink context is a CSV of LST-derived data plus a markdown file describing that CSV's
- * schema. {@link ExportContext} regenerates both from the same {@code @Column} metadata, so within
- * a single run they always agree. Drift appears <em>across</em> runs: when a data table is removed,
- * its columns are renamed, or a context is restructured (for example, per-table markdown files
- * collapsed into a single bundled {@code architecture.md}), the files a previous recipe version
- * committed to {@code .moderne/context/} are left behind. The current run refreshes the files it
- * still owns while the orphans stay frozen at their old schema, so a coding agent reads a stale
- * markdown doc next to a regenerated CSV.
- * <p>
- * This recipe deletes any {@code .moderne/context/} {@code *.csv} or {@code *.md} file that was not
- * produced by an {@link ExportContext} in this run (tracked via {@link Prethink#KEPT_CONTEXT_FILES}).
- * Non-CSV/markdown context files (such as {@code calm-architecture.json}) are never touched.
- * <p>
- * It must run <em>after</em> every {@link ExportContext} in the pipeline so the kept-file set is
- * complete before anything is deleted; if no {@link ExportContext} has run, the set is absent and
- * this recipe deletes nothing.
+ * Delete {@code .moderne/context/} CSV/markdown files that no {@link ExportContext} produced this run
+ * (tracked via {@link Prethink#KEPT_CONTEXT_FILES}), removing files left behind by an earlier recipe
+ * version. Non-CSV/markdown files (e.g. {@code calm-architecture.json}) are left alone. Must run after
+ * every {@link ExportContext} so the kept-file set is complete; if none ran, nothing is deleted.
  */
 @Value
 @EqualsAndHashCode(callSuper = false)
 public class RemoveStaleContextFiles extends Recipe {
 
-    @Override
-    public String getDisplayName() {
-        return "Remove stale Prethink context files";
-    }
+    String displayName = "Remove stale Prethink context files";
 
-    @Override
-    public String getDescription() {
-        return "Delete `.moderne/context/` CSV and markdown files that no current context produces, " +
-               "so documentation left behind by a previous recipe version (renamed columns, removed " +
-               "tables, restructured contexts) does not linger out of sync with the regenerated CSVs. " +
-               "Must run after every `ExportContext` so the set of files to keep is complete.";
-    }
+    String description = "Delete `.moderne/context/` CSV and markdown files that no current context produces, " +
+            "so documentation left behind by a previous recipe version (renamed columns, removed " +
+            "tables, restructured contexts) does not linger out of sync with the regenerated CSVs. " +
+            "Must run after every `ExportContext` so the set of files to keep is complete.";
 
     @Override
     public TreeVisitor<?, ExecutionContext> getVisitor() {
@@ -76,8 +56,6 @@ public class RemoveStaleContextFiles extends Recipe {
                 }
 
                 Set<String> keptContextFiles = ctx.getMessage(Prethink.KEPT_CONTEXT_FILES);
-                // No ExportContext has published its files yet (e.g. cycle 1, or a pipeline with no
-                // ExportContext). Deleting now would be unsafe, so keep everything.
                 if (keptContextFiles == null) {
                     return tree;
                 }
@@ -88,13 +66,10 @@ public class RemoveStaleContextFiles extends Recipe {
                 }
 
                 String filename = path.getFileName().toString();
-                // Only CSV/markdown pairs can drift out of sync; leave everything else (e.g.
-                // calm-architecture.json) untouched.
                 if (!filename.endsWith(".csv") && !filename.endsWith(".md")) {
                     return tree;
                 }
 
-                // A file no live context produced is an orphan from an earlier recipe version.
                 if (!keptContextFiles.contains(filename)) {
                     return null;
                 }

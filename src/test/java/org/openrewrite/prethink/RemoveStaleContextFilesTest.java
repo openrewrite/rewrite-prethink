@@ -34,10 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RemoveStaleContextFilesTest {
 
-    /**
-     * Mirrors the production discovery recipes: populates a grouped TestMapping data table so that
-     * {@link ExportContext} has rows to export (and thus advertises its files as kept).
-     */
+    /** Populates a grouped TestMapping so {@link ExportContext} has rows to export. */
     @Getter
     public static class PopulateTestMapping extends Recipe {
         transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
@@ -77,11 +74,8 @@ class RemoveStaleContextFilesTest {
     }
 
     /**
-     * The core scenario from customer-requests#2261: a customer repo carries context files from an
-     * older recipe version. This run still produces {@code test-mapping.csv}/{@code test-coverage.md}
-     * (kept), but {@code method-descriptions.csv} (table removed) and {@code messaging-connections.md}
-     * (context restructured into the bundled architecture doc) are orphans and must be deleted, while
-     * {@code calm-architecture.json} — not a CSV/markdown pair — must be left alone.
+     * customer-requests#2261: orphan CSV/markdown from an older recipe version are deleted, while the
+     * live files and non-pair files ({@code calm-architecture.json}) are kept.
      */
     @Test
     void deletesOrphanCsvAndMarkdownButKeepsLiveAndNonPairContext(@TempDir Path dataTablesDir) {
@@ -100,22 +94,19 @@ class RemoveStaleContextFilesTest {
           new RemoveStaleContextFiles()
         ));
 
-        // The live Test Coverage context is generated fresh this run (its placeholder in cycle 1 is
-        // the change that drives the second cycle, mirroring a real pipeline). Only orphans from an
-        // earlier recipe version are pre-seeded.
+        // Only orphans from an earlier recipe version are pre-seeded; the live context is generated fresh.
         InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
           plainText("src/test/java/FooTest.java", "package com.example;\npublic class FooTest {}"),
-          // Orphan CSV whose owning table was removed (has no owning context anymore).
+          // Orphan CSV (owning table removed).
           plainText(".moderne/context/method-descriptions.csv",
             "Source path,Signature,Inference time (ms),Input tokens,Output tokens\nold,old,1,2,3"),
-          // Orphan per-table markdown superseded by the bundled architecture doc.
+          // Orphan markdown (context restructured).
           plainText(".moderne/context/messaging-connections.md",
             "# Messaging Connections\n\n## Kafka/async event flows\n\nConnection class, Messaging type, Topic/Queue name, Role, Framework"),
-          // Not a CSV/markdown pair — must never be swept.
+          // Not a CSV/markdown pair — must be kept.
           plainText(".moderne/context/calm-architecture.json", "{\"nodes\":[]}")
         ));
 
-        // Drive the run exactly as the Moderne CLI does: maxCycles=3, minCycles=1.
         RecipeRun run = composite.run(sources, ctx, 3, 1);
 
         Set<String> deleted = deletedPaths(run);
@@ -131,7 +122,7 @@ class RemoveStaleContextFilesTest {
             ".moderne/context/test-coverage.md",
             ".moderne/context/calm-architecture.json");
 
-        // The live CSV is regenerated with real data (not left at the stale placeholder).
+        // Live CSV is refreshed with real rows.
         SourceFile testMappingCsv = run.getChangeset().getAllResults().stream()
           .map(Result::getAfter)
           .filter(Objects::nonNull)
@@ -147,10 +138,7 @@ class RemoveStaleContextFilesTest {
           .doesNotContain("stale");
     }
 
-    /**
-     * Without any {@link ExportContext} in the pipeline nothing is published as "kept", so the
-     * recipe must not delete anything — it has no basis to decide what is stale.
-     */
+    /** With no {@link ExportContext} to define the kept set, the recipe deletes nothing. */
     @Test
     void keepsEverythingWhenNoExportContextHasRun() {
         InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(

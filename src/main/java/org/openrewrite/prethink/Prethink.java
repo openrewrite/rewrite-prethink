@@ -40,16 +40,10 @@ public final class Prethink {
     public static final String CYCLE_TRIGGER = "io.moderne.prethink.cycleTrigger";
 
     /**
-     * ExecutionContext message key holding the set of {@code .moderne/context/} filenames
-     * (e.g. {@code messaging-connections.csv}, {@code architecture.md}) that were produced by
-     * an {@link ExportContext} during this run. Every {@link ExportContext} adds the CSVs it
-     * filled with data plus its own markdown description file. {@link RemoveStaleContextFiles}
-     * reads this set and deletes any context file no live context produced, so that markdown
-     * docs and CSVs left behind by a previous recipe version (renamed columns, removed tables,
-     * restructured contexts) do not linger out of sync with the current schema.
-     * <p>
-     * The value is a concurrent {@link java.util.Set} so parallel visitors can add to it safely.
-     * The {@code io.moderne.} prefix is required by {@code CursorValidatingExecutionContextView}'s
+     * ExecutionContext message key holding the concurrent {@link java.util.Set} of
+     * {@code .moderne/context/} filenames produced by {@link ExportContext} this run;
+     * {@link RemoveStaleContextFiles} deletes any context file not in this set. The
+     * {@code io.moderne.} prefix is required by {@code CursorValidatingExecutionContextView}'s
      * allow-list for ExecutionContext mutations.
      */
     public static final String KEPT_CONTEXT_FILES = "io.moderne.prethink.keptContextFiles";

@@ -157,10 +157,6 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             }
             acc.markdown = exportedTables.isEmpty() ? null : generateMarkdown(exportedTables);
 
-            // Advertise every file this context actually produces so RemoveStaleContextFiles
-            // knows to keep them. Only tables that yielded rows are in `rendered`, and the
-            // markdown is only kept when at least one table produced rows — matching exactly
-            // the files getVisitor() writes (rather than deletes), so nothing live is swept.
             Set<String> keptContextFiles = ctx.computeMessageIfAbsent(
                     Prethink.KEPT_CONTEXT_FILES, k -> ConcurrentHashMap.<String>newKeySet());
             keptContextFiles.addAll(rendered.keySet());
