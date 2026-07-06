@@ -73,11 +73,8 @@ class RemoveStaleContextFilesTest {
           .collect(Collectors.toSet());
     }
 
-    /**
-     * customer-requests#2261: orphan CSV/markdown from an older recipe version are deleted, while the
-     * live files and non-pair files ({@code calm-architecture.json}) are kept.
-     */
     @Test
+    @Issue("https://github.com/moderneinc/customer-requests/issues/2261")
     void deletesOrphanCsvAndMarkdownButKeepsLiveAndNonPairContext(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
         DataTableExecutionContextView.view(ctx)
