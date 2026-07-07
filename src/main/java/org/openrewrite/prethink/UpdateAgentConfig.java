@@ -69,6 +69,14 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     @Nullable
     String targetConfigFile;
 
+    @Option(displayName = "Template",
+            description = "The template used to generate the context section. The `{{CONTEXT_TABLE}}` placeholder is " +
+                          "replaced with the generated context table. If not specified, a bundled default template is used.",
+            required = false,
+            example = "## Available Context\n\n{{CONTEXT_TABLE}}")
+    @Nullable
+    String template;
+
     String displayName = "Update agent configuration files";
 
     String description = "Update coding agent configuration files (CLAUDE.md, .cursorrules, etc.) " +
@@ -231,7 +239,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     }
 
     private String generateContextSection(List<ContextEntry> contextEntries) {
-        String template = loadTemplate();
+        String template = this.template != null ? this.template : loadTemplate();
         List<ContextEntry> sorted = new ArrayList<>(contextEntries);
         sorted.sort(Comparator.comparing(ContextEntry::getDisplayName));
         String contextTable = generateContextTable(sorted);

@@ -27,7 +27,7 @@ class UpdateAgentConfigTest implements RewriteTest {
 
     @Override
     public void defaults(RecipeSpec spec) {
-        spec.recipe(new UpdateAgentConfig(null));
+        spec.recipe(new UpdateAgentConfig(null, null));
     }
 
     @DocumentExample
@@ -85,7 +85,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void addsContextSectionToCopilotInstructions() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md")),
+          spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md", null)),
           // Context markdown file (scanner needs to find it to extract metadata)
           text(
             //language=Markdown
@@ -257,6 +257,60 @@ class UpdateAgentConfigTest implements RewriteTest {
               This context maps tests.
               """,
             spec -> spec.path(".moderne/context/test-coverage.md")
+          )
+        );
+    }
+
+    @Test
+    void usesCustomTemplateWhenProvided() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(null,
+            //language=Markdown
+            """
+              ## My Task Context
+
+              Only the context files below are relevant to this task.
+
+              {{CONTEXT_TABLE}}
+              """)),
+          // Context markdown file (scanner needs to find it to extract metadata)
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps test methods to implementation methods they verify
+
+              This context maps each test method to the implementation methods it calls.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          ),
+          // CLAUDE.md file to be updated
+          text(
+            //language=Markdown
+            """
+              # Project Documentation
+
+              This is my project.
+              """,
+            spec -> spec.path("CLAUDE.md").after(after ->
+              assertThat(after)
+                // Check section markers
+                .contains("<!-- prethink-context -->")
+                .contains("<!-- /prethink-context -->")
+                // Custom template content is used
+                .contains("## My Task Context")
+                .contains("Only the context files below are relevant to this task.")
+                // Context table is still rendered into the placeholder
+                .contains("| Test Coverage |")
+                .contains("test-coverage.md")
+                // Bundled default template content is NOT present
+                .doesNotContain("## Moderne Prethink Context")
+                .doesNotContain("IMPORTANT: Before exploring source code")
+                // Verify original content preserved
+                .contains("# Project Documentation")
+                .contains("This is my project.")
+                .actual())
           )
         );
     }

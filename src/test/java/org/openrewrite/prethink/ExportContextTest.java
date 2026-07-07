@@ -535,7 +535,7 @@ class ExportContextTest implements RewriteTest {
 
         Recipe composite = new CompositeRecipe(List.of(
           new PopulateArchitectureTables(),
-          new UpdatePrethinkContext(null)
+          new UpdatePrethinkContext(null, null)
         ));
 
         InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
