@@ -135,13 +135,6 @@ class RemoveStaleContextFilesTest {
           .doesNotContain("stale");
     }
 
-    /**
-     * The agent config table must not advertise a context whose markdown was deleted as stale
-     * in the same run. {@link UpdateAgentConfig}'s scanner collects context entries from the
-     * pre-deletion state, so without reconciling against {@link Prethink#KEPT_CONTEXT_FILES}
-     * the run that removes an orphan still publishes a CLAUDE.md table row pointing at the
-     * now-deleted file.
-     */
     @Test
     void agentConfigDoesNotAdvertiseContextDeletedInSameRun(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -162,8 +155,7 @@ class RemoveStaleContextFilesTest {
 
         InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
           plainText("src/test/java/FooTest.java", "package com.example;\npublic class FooTest {}"),
-          // Orphan markdown from an earlier recipe version, with the title + subtitle
-          // shape UpdateAgentConfig's scanner parses into a context entry.
+          // Orphan markdown with the title + subtitle shape the scanner parses into a context entry
           plainText(".moderne/context/messaging-connections.md",
             "# Messaging Connections\n\n## Kafka/async event flows\n\nStale schema doc"),
           plainText("CLAUDE.md", "# Project Documentation\n")

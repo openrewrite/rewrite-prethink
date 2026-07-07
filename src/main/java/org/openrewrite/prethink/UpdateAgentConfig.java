@@ -173,12 +173,26 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                     .id(Tree.randomId())
                     .sourcePath(Paths.get(target))
                     .markers(Markers.EMPTY)
-                    .text(generateContextSection(acc.getContextEntries()))
+                    .text(generateContextSection(liveContextEntries(acc, ctx)))
                     .build();
             generated.add(newConfig);
         }
 
         return generated;
+    }
+
+    private List<ContextEntry> liveContextEntries(Accumulator acc, ExecutionContext ctx) {
+        Set<String> keptContextFiles = ctx.getMessage(Prethink.KEPT_CONTEXT_FILES);
+        if (keptContextFiles == null) {
+            return acc.getContextEntries();
+        }
+        List<ContextEntry> live = new ArrayList<>(acc.getContextEntries().size());
+        for (ContextEntry entry : acc.getContextEntries()) {
+            if (keptContextFiles.contains(Paths.get(entry.getContextFile()).getFileName().toString())) {
+                live.add(entry);
+            }
+        }
+        return live;
     }
 
     @Override
@@ -204,13 +218,14 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                     return text;
                 }
 
-                // If no context entries found, nothing to do
-                if (acc.getContextEntries().isEmpty()) {
+                // If no live context entries found, nothing to do
+                List<ContextEntry> entries = liveContextEntries(acc, ctx);
+                if (entries.isEmpty()) {
                     return text;
                 }
 
                 String content = text.getText();
-                String newSection = generateContextSection(acc.getContextEntries());
+                String newSection = generateContextSection(entries);
 
                 // Check if context section already exists
                 Matcher matcher = CONTEXT_SECTION_PATTERN.matcher(content);
