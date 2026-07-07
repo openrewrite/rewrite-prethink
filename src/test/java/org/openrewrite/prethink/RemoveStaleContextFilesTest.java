@@ -135,6 +135,63 @@ class RemoveStaleContextFilesTest {
           .doesNotContain("stale");
     }
 
+    /**
+     * The agent config table must not advertise a context whose markdown was deleted as stale
+     * in the same run. {@link UpdateAgentConfig}'s scanner collects context entries from the
+     * pre-deletion state, so without reconciling against {@link Prethink#KEPT_CONTEXT_FILES}
+     * the run that removes an orphan still publishes a CLAUDE.md table row pointing at the
+     * now-deleted file.
+     */
+    @Test
+    void agentConfigDoesNotAdvertiseContextDeletedInSameRun(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx)
+          .setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateTestMapping(),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping")
+          ),
+          new RemoveStaleContextFiles(),
+          new UpdateAgentConfig(null)
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          plainText("src/test/java/FooTest.java", "package com.example;\npublic class FooTest {}"),
+          // Orphan markdown from an earlier recipe version, with the title + subtitle
+          // shape UpdateAgentConfig's scanner parses into a context entry.
+          plainText(".moderne/context/messaging-connections.md",
+            "# Messaging Connections\n\n## Kafka/async event flows\n\nStale schema doc"),
+          plainText("CLAUDE.md", "# Project Documentation\n")
+        ));
+
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+
+        assertThat(deletedPaths(run))
+          .as("the orphaned markdown must be removed")
+          .contains(".moderne/context/messaging-connections.md");
+
+        String claudeMd = run.getChangeset().getAllResults().stream()
+          .map(Result::getAfter)
+          .filter(Objects::nonNull)
+          .filter(sf -> sf.getSourcePath().toString().equals("CLAUDE.md"))
+          .map(sf -> ((PlainText) sf).getText())
+          .findFirst()
+          .orElseThrow(() -> new AssertionError("CLAUDE.md was not updated"));
+
+        assertThat(claudeMd)
+          .as("the live context must be advertised")
+          .contains("| Test Coverage |");
+        assertThat(claudeMd)
+          .as("a context deleted as stale in this run must not be advertised")
+          .doesNotContain("Messaging Connections")
+          .doesNotContain("messaging-connections.md");
+    }
+
     /** With no {@link ExportContext} to define the kept set, the recipe deletes nothing. */
     @Test
     void keepsEverythingWhenNoExportContextHasRun() {
