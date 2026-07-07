@@ -33,6 +33,7 @@ import org.openrewrite.prethink.table.ServerConfiguration;
 import org.openrewrite.prethink.table.ServiceEndpoints;
 
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Core Prethink context recipe that generates CALM architecture and agent configuration.
@@ -48,12 +49,13 @@ import java.util.Arrays;
 @Value
 public class UpdatePrethinkContext extends Recipe {
 
-    @Option(displayName = "Target config file",
-            description = "Which agent config file to update. If not specified, updates all found files.",
+    @Option(displayName = "Target config files",
+            description = "Which agent config files to update, creating any that do not exist yet. " +
+                    "If not specified, updates all found files, creating `CLAUDE.md` when none exist.",
             required = false,
             example = "CLAUDE.md")
     @Nullable
-    String targetConfigFile;
+    List<String> targetConfigFiles;
 
     String displayName = "Update Prethink context";
 
@@ -88,7 +90,7 @@ public class UpdatePrethinkContext extends Recipe {
                 ))
 
                 // Update agent config files
-                .recipe(new UpdateAgentConfig(targetConfigFile))
+                .recipe(new UpdateAgentConfig(targetConfigFiles))
 
                 // Update .gitignore to allow committing context files
                 .recipe(new UpdateGitignore());
