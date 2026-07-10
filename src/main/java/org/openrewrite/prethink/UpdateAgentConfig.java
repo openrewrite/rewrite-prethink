@@ -166,22 +166,10 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             return generated;
         }
 
-<<<<<<< HEAD
-        // If no config files exist and we have a target, create it
-        if (acc.getFoundConfigFiles().isEmpty()) {
-            String target = targetConfigFile != null ? separatorsToSystem(targetConfigFile) : "CLAUDE.md";
-            PlainText newConfig = PlainText.builder()
-                    .id(Tree.randomId())
-                    .sourcePath(Paths.get(target))
-                    .markers(Markers.EMPTY)
-                    .text(generateContextSection(liveContextEntries(acc, ctx)))
-                    .build();
-            generated.add(newConfig);
-=======
         if (targetConfigFiles == null || targetConfigFiles.isEmpty()) {
             // No targets specified: create CLAUDE.md only when no config files exist at all
             if (acc.getFoundConfigFiles().isEmpty()) {
-                generated.add(newConfigFile("CLAUDE.md", acc));
+                generated.add(newConfigFile("CLAUDE.md", liveContextEntries(acc, ctx)));
             }
         } else {
             // Targets specified: create each target that does not exist yet
@@ -189,16 +177,14 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                 boolean exists = acc.getFoundConfigFiles().stream()
                         .anyMatch(path -> matchesTarget(path, target));
                 if (!exists) {
-                    generated.add(newConfigFile(target, acc));
+                    generated.add(newConfigFile(target, liveContextEntries(acc, ctx)));
                 }
             }
->>>>>>> origin/main
         }
 
         return generated;
     }
 
-<<<<<<< HEAD
     private List<ContextEntry> liveContextEntries(Accumulator acc, ExecutionContext ctx) {
         Set<String> keptContextFiles = ctx.getMessage(Prethink.KEPT_CONTEXT_FILES);
         if (keptContextFiles == null) {
@@ -211,13 +197,14 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             }
         }
         return live;
-=======
-    private PlainText newConfigFile(String target, Accumulator acc) {
+    }
+
+    private PlainText newConfigFile(String target, List<ContextEntry> entries) {
         return PlainText.builder()
                 .id(Tree.randomId())
                 .sourcePath(Paths.get(separatorsToSystem(target)))
                 .markers(Markers.EMPTY)
-                .text(generateContextSection(acc.getContextEntries()))
+                .text(generateContextSection(entries))
                 .build();
     }
 
@@ -236,7 +223,6 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         return unixPath.equals(unixTarget) ||
                unixPath.endsWith("/" + unixTarget) ||
                Paths.get(path).getFileName().toString().equals(unixTarget);
->>>>>>> origin/main
     }
 
     @Override
