@@ -63,12 +63,13 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             ".github/copilot-instructions.md"
     );
 
-    @Option(displayName = "Target config file",
-            description = "Which agent config file to update. If not specified, updates all found files.",
+    @Option(displayName = "Target config files",
+            description = "Which agent config files to update, creating any that do not exist yet. " +
+                    "If not specified, updates all found files, creating `CLAUDE.md` when none exist.",
             required = false,
             example = "CLAUDE.md")
     @Nullable
-    String targetConfigFile;
+    List<String> targetConfigFiles;
 
     @Option(displayName = "Template",
             description = "The template used to generate the context section. The `{{CONTEXT_TABLE}}` placeholder is " +
@@ -126,8 +127,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
 
                     // Track agent config files
                     String fileName = sf.getSourcePath().getFileName().toString();
-                    if (AGENT_CONFIG_FILES.contains(separatorsToUnix(fileName)) ||
-                        AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith)) {
+                    if (isConfigFile(path, fileName)) {
                         acc.getFoundConfigFiles().add(path);
                     }
                 }
@@ -175,19 +175,49 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             return generated;
         }
 
-        // If no config files exist and we have a target, create it
-        if (acc.getFoundConfigFiles().isEmpty()) {
-            String target = targetConfigFile != null ? separatorsToSystem(targetConfigFile) : "CLAUDE.md";
-            PlainText newConfig = PlainText.builder()
-                    .id(Tree.randomId())
-                    .sourcePath(Paths.get(target))
-                    .markers(Markers.EMPTY)
-                    .text(generateContextSection(acc.getContextEntries()))
-                    .build();
-            generated.add(newConfig);
+        if (targetConfigFiles == null || targetConfigFiles.isEmpty()) {
+            // No targets specified: create CLAUDE.md only when no config files exist at all
+            if (acc.getFoundConfigFiles().isEmpty()) {
+                generated.add(newConfigFile("CLAUDE.md", acc));
+            }
+        } else {
+            // Targets specified: create each target that does not exist yet
+            for (String target : targetConfigFiles) {
+                boolean exists = acc.getFoundConfigFiles().stream()
+                        .anyMatch(path -> matchesTarget(path, target));
+                if (!exists) {
+                    generated.add(newConfigFile(target, acc));
+                }
+            }
         }
 
         return generated;
+    }
+
+    private PlainText newConfigFile(String target, Accumulator acc) {
+        return PlainText.builder()
+                .id(Tree.randomId())
+                .sourcePath(Paths.get(separatorsToSystem(target)))
+                .markers(Markers.EMPTY)
+                .text(generateContextSection(acc.getContextEntries()))
+                .build();
+    }
+
+    private boolean isConfigFile(String path, String fileName) {
+        if (AGENT_CONFIG_FILES.contains(separatorsToUnix(fileName)) ||
+            AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith)) {
+            return true;
+        }
+        return targetConfigFiles != null &&
+               targetConfigFiles.stream().anyMatch(target -> matchesTarget(path, target));
+    }
+
+    private boolean matchesTarget(String path, String target) {
+        String unixPath = separatorsToUnix(path);
+        String unixTarget = separatorsToUnix(target);
+        return unixPath.equals(unixTarget) ||
+               unixPath.endsWith("/" + unixTarget) ||
+               Paths.get(path).getFileName().toString().equals(unixTarget);
     }
 
     @Override
@@ -197,19 +227,15 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             public PlainText visitText(PlainText text, ExecutionContext ctx) {
                 String path = text.getSourcePath().toString();
                 String fileName = text.getSourcePath().getFileName().toString();
-                String systemTargetConfigFile = targetConfigFile == null ? null : separatorsToSystem(targetConfigFile);
 
                 // Check if this is a config file we should update
-                boolean isConfigFile = AGENT_CONFIG_FILES.contains(separatorsToUnix(fileName)) ||
-                        AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith);
-
-                if (!isConfigFile) {
+                if (!isConfigFile(path, fileName)) {
                     return text;
                 }
 
-                // Skip if targeting a specific file and this isn't it
-                if (systemTargetConfigFile != null && !path.equals(systemTargetConfigFile) &&
-                    !fileName.equals(systemTargetConfigFile)) {
+                // Skip if targeting specific files and this isn't one of them
+                if (targetConfigFiles != null && !targetConfigFiles.isEmpty() &&
+                    targetConfigFiles.stream().noneMatch(target -> matchesTarget(path, target))) {
                     return text;
                 }
 

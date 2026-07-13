@@ -20,6 +20,11 @@ import org.openrewrite.DocumentExample;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 
+import java.util.Arrays;
+import java.util.List;
+
+import static java.util.Collections.singletonList;
+import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
 
@@ -85,7 +90,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void addsContextSectionToCopilotInstructions() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(".github/copilot-instructions.md", null)),
+          spec -> spec.recipe(new UpdateAgentConfig(singletonList(".github/copilot-instructions.md"), null)),
           // Context markdown file (scanner needs to find it to extract metadata)
           text(
             //language=Markdown
@@ -257,6 +262,158 @@ class UpdateAgentConfigTest implements RewriteTest {
               This context maps tests.
               """,
             spec -> spec.path(".moderne/context/test-coverage.md")
+          )
+        );
+    }
+
+    @Test
+    void createsAllTargetConfigFilesWhenNoneExist() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null))
+            .expectedCyclesThatMakeChanges(1)
+            .afterRecipe(run -> {
+                List<String> created = run.getChangeset().getAllResults().stream()
+                  .filter(r -> r.getBefore() == null && r.getAfter() != null)
+                  .map(r -> r.getAfter().getSourcePath().toString())
+                  .collect(toList());
+                assertThat(created).containsExactlyInAnyOrder("CLAUDE.md", "AGENTS.md");
+            }),
+          // Only context markdown file exists, no config files
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          )
+        );
+    }
+
+    @Test
+    void createsMissingAndUpdatesExistingTargets() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null))
+            .expectedCyclesThatMakeChanges(1)
+            .afterRecipe(run -> {
+                List<String> created = run.getChangeset().getAllResults().stream()
+                  .filter(r -> r.getBefore() == null && r.getAfter() != null)
+                  .map(r -> r.getAfter().getSourcePath().toString())
+                  .collect(toList());
+                assertThat(created).containsExactly("AGENTS.md");
+            }),
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          ),
+          // CLAUDE.md already exists and should be updated in place
+          text(
+            //language=Markdown
+            """
+              # Project Documentation
+
+              This is my project.
+              """,
+            spec -> spec.path("CLAUDE.md").after(after ->
+              assertThat(after)
+                .contains("<!-- prethink-context -->")
+                .contains("| Test Coverage |")
+                .contains("# Project Documentation")
+                .actual())
+          )
+        );
+    }
+
+    @Test
+    void updatesAllTargetsButNotOtherConfigFiles() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null)),
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          ),
+          // Both targets exist and should be updated
+          text(
+            //language=Markdown
+            """
+              # Project Documentation
+
+              This is my project.
+              """,
+            spec -> spec.path("CLAUDE.md").after(after ->
+              assertThat(after)
+                .contains("<!-- prethink-context -->")
+                .contains("| Test Coverage |")
+                .actual())
+          ),
+          text(
+            //language=Markdown
+            """
+              # Agent Instructions
+
+              Instructions for agents.
+              """,
+            spec -> spec.path("AGENTS.md").after(after ->
+              assertThat(after)
+                .contains("<!-- prethink-context -->")
+                .contains("| Test Coverage |")
+                .actual())
+          ),
+          // A config file that is not targeted should be left alone
+          text(
+            //language=Markdown
+            """
+              # Cursor rules
+              """,
+            spec -> spec.path(".cursorrules")
+          )
+        );
+    }
+
+    @Test
+    void updatesCustomTargetConfigFile() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(singletonList(".windsurfrules"), null)),
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          ),
+          // A file outside the well-known config file names can still be targeted
+          text(
+            //language=Markdown
+            """
+              # Windsurf rules
+              """,
+            spec -> spec.path(".windsurfrules").after(after ->
+              assertThat(after)
+                .contains("<!-- prethink-context -->")
+                .contains("| Test Coverage |")
+                .contains("# Windsurf rules")
+                .actual())
           )
         );
     }
