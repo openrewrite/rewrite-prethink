@@ -316,6 +316,55 @@ class UpdateAgentConfigTest implements RewriteTest {
     }
 
     @Test
+    void appendsContextTableWhenTemplateOmitsPlaceholder() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(null,
+            //language=Markdown
+            """
+              ## My Task Context
+
+              Only the context files below are relevant to this task.
+              """)),
+          // Context markdown file (scanner needs to find it to extract metadata)
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps test methods to implementation methods they verify
+
+              This context maps each test method to the implementation methods it calls.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          ),
+          // CLAUDE.md file to be updated
+          text(
+            //language=Markdown
+            """
+              # Project Documentation
+
+              This is my project.
+              """,
+            spec -> spec.path("CLAUDE.md").after(after ->
+              assertThat(after)
+                // Check section markers
+                .contains("<!-- prethink-context -->")
+                .contains("<!-- /prethink-context -->")
+                // Custom template content is used
+                .contains("## My Task Context")
+                .contains("Only the context files below are relevant to this task.")
+                // Context table is appended even though the template omits the placeholder
+                .contains("| Test Coverage |")
+                .contains("test-coverage.md")
+                // Verify original content preserved
+                .contains("# Project Documentation")
+                .contains("This is my project.")
+                .actual())
+          )
+        );
+    }
+
+    @Test
     void noChangesWhenNoContextFiles() {
         rewriteRun(
           // CLAUDE.md exists but no context markdown files

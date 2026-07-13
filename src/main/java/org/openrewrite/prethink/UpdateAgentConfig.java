@@ -49,6 +49,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     transient ContextRegistry contextRegistry = new ContextRegistry(this);
 
     private static final String CONTEXT_SECTION_MARKER = "<!-- prethink-context -->";
+    private static final String CONTEXT_TABLE_PLACEHOLDER = "{{CONTEXT_TABLE}}";
     // Match the full context section including both markers
     private static final Pattern CONTEXT_SECTION_PATTERN = Pattern.compile(
             "<!-- prethink-context -->.*?<!-- /prethink-context -->",
@@ -243,7 +244,11 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         List<ContextEntry> sorted = new ArrayList<>(contextEntries);
         sorted.sort(Comparator.comparing(ContextEntry::getDisplayName));
         String contextTable = generateContextTable(sorted);
-        String content = template.replace("{{CONTEXT_TABLE}}", contextTable);
+        // Replace the placeholder with the generated table. If the template omits the placeholder,
+        // append the table at the end so the context is never silently dropped.
+        String content = template.contains(CONTEXT_TABLE_PLACEHOLDER) ?
+                template.replace(CONTEXT_TABLE_PLACEHOLDER, contextTable) :
+                template + "\n\n" + contextTable;
 
         return CONTEXT_SECTION_MARKER + "\n" + content + "\n<!-- /prethink-context -->";
     }
