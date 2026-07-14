@@ -34,6 +34,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.joining;
 import static org.openrewrite.PathUtils.separatorsToSystem;
 import static org.openrewrite.PathUtils.separatorsToUnix;
@@ -175,14 +176,15 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             return generated;
         }
 
-        if (targetConfigFiles == null || targetConfigFiles.isEmpty()) {
+        List<String> targets = targets();
+        if (targets.isEmpty()) {
             // No targets specified: create CLAUDE.md only when no config files exist at all
             if (acc.getFoundConfigFiles().isEmpty()) {
                 generated.add(newConfigFile("CLAUDE.md", acc));
             }
         } else {
             // Targets specified: create each target that does not exist yet
-            for (String target : targetConfigFiles) {
+            for (String target : targets) {
                 boolean exists = acc.getFoundConfigFiles().stream()
                         .anyMatch(path -> matchesTarget(path, target));
                 if (!exists) {
@@ -192,6 +194,19 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         }
 
         return generated;
+    }
+
+    private List<String> targets() {
+        if (targetConfigFiles == null) {
+            return emptyList();
+        }
+        List<String> targets = new ArrayList<>(targetConfigFiles.size());
+        for (String target : targetConfigFiles) {
+            if (target != null && !target.trim().isEmpty()) {
+                targets.add(target.trim());
+            }
+        }
+        return targets;
     }
 
     private PlainText newConfigFile(String target, Accumulator acc) {
@@ -208,8 +223,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith)) {
             return true;
         }
-        return targetConfigFiles != null &&
-               targetConfigFiles.stream().anyMatch(target -> matchesTarget(path, target));
+        return targets().stream().anyMatch(target -> matchesTarget(path, target));
     }
 
     private boolean matchesTarget(String path, String target) {
