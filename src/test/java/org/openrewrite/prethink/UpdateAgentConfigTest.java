@@ -294,6 +294,58 @@ class UpdateAgentConfigTest implements RewriteTest {
     }
 
     @Test
+    void blankTargetFallsBackToDefaultBehavior() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(singletonList(""), null))
+            .expectedCyclesThatMakeChanges(1)
+            .afterRecipe(run -> {
+                List<String> created = run.getChangeset().getAllResults().stream()
+                  .filter(r -> r.getBefore() == null && r.getAfter() != null)
+                  .map(r -> r.getAfter().getSourcePath().toString())
+                  .collect(toList());
+                assertThat(created).containsExactly("CLAUDE.md");
+            }),
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          )
+        );
+    }
+
+    @Test
+    void skipsBlankTargetsAmongValidOnes() {
+        rewriteRun(
+          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "", "  ", "AGENTS.md"), null))
+            .expectedCyclesThatMakeChanges(1)
+            .afterRecipe(run -> {
+                List<String> created = run.getChangeset().getAllResults().stream()
+                  .filter(r -> r.getBefore() == null && r.getAfter() != null)
+                  .map(r -> r.getAfter().getSourcePath().toString())
+                  .collect(toList());
+                assertThat(created).containsExactlyInAnyOrder("CLAUDE.md", "AGENTS.md");
+            }),
+          text(
+            //language=Markdown
+            """
+              # Test Coverage
+
+              ## Maps tests to implementations
+
+              This context maps tests.
+              """,
+            spec -> spec.path(".moderne/context/test-coverage.md")
+          )
+        );
+    }
+
+    @Test
     void createsMissingAndUpdatesExistingTargets() {
         rewriteRun(
           spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null))
