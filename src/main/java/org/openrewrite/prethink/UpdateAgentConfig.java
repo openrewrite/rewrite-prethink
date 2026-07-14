@@ -34,6 +34,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.joining;
 import static org.openrewrite.PathUtils.separatorsToSystem;
 import static org.openrewrite.PathUtils.separatorsToUnix;
@@ -49,6 +50,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     transient ContextRegistry contextRegistry = new ContextRegistry(this);
 
     private static final String CONTEXT_SECTION_MARKER = "<!-- prethink-context -->";
+    private static final String CONTEXT_TABLE_PLACEHOLDER = "{{CONTEXT_TABLE}}";
     // Match the full context section including both markers
     private static final Pattern CONTEXT_SECTION_PATTERN = Pattern.compile(
             "<!-- prethink-context -->.*?<!-- /prethink-context -->",
@@ -69,6 +71,14 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             example = "CLAUDE.md")
     @Nullable
     List<String> targetConfigFiles;
+
+    @Option(displayName = "Template",
+            description = "The template used to generate the context section. The `{{CONTEXT_TABLE}}` placeholder is " +
+                          "replaced with the generated context table. If not specified, a bundled default template is used.",
+            required = false,
+            example = "## Available Context\n\n{{CONTEXT_TABLE}}")
+    @Nullable
+    String template;
 
     String displayName = "Update agent configuration files";
 
@@ -166,14 +176,15 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             return generated;
         }
 
-        if (targetConfigFiles == null || targetConfigFiles.isEmpty()) {
+        List<String> targets = targets();
+        if (targets.isEmpty()) {
             // No targets specified: create CLAUDE.md only when no config files exist at all
             if (acc.getFoundConfigFiles().isEmpty()) {
                 generated.add(newConfigFile("CLAUDE.md", liveContextEntries(acc, ctx)));
             }
         } else {
             // Targets specified: create each target that does not exist yet
-            for (String target : targetConfigFiles) {
+            for (String target : targets) {
                 boolean exists = acc.getFoundConfigFiles().stream()
                         .anyMatch(path -> matchesTarget(path, target));
                 if (!exists) {
@@ -199,6 +210,19 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         return live;
     }
 
+    private List<String> targets() {
+        if (targetConfigFiles == null) {
+            return emptyList();
+        }
+        List<String> targets = new ArrayList<>(targetConfigFiles.size());
+        for (String target : targetConfigFiles) {
+            if (target != null && !target.trim().isEmpty()) {
+                targets.add(target.trim());
+            }
+        }
+        return targets;
+    }
+
     private PlainText newConfigFile(String target, List<ContextEntry> entries) {
         return PlainText.builder()
                 .id(Tree.randomId())
@@ -213,8 +237,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
             AGENT_CONFIG_FILES.stream().anyMatch(separatorsToUnix(path)::endsWith)) {
             return true;
         }
-        return targetConfigFiles != null &&
-               targetConfigFiles.stream().anyMatch(target -> matchesTarget(path, target));
+        return targets().stream().anyMatch(target -> matchesTarget(path, target));
     }
 
     private boolean matchesTarget(String path, String target) {
@@ -272,11 +295,15 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
     }
 
     private String generateContextSection(List<ContextEntry> contextEntries) {
-        String template = loadTemplate();
+        String template = this.template != null ? this.template : loadTemplate();
         List<ContextEntry> sorted = new ArrayList<>(contextEntries);
         sorted.sort(Comparator.comparing(ContextEntry::getDisplayName));
         String contextTable = generateContextTable(sorted);
-        String content = template.replace("{{CONTEXT_TABLE}}", contextTable);
+        // Replace the placeholder with the generated table. If the template omits the placeholder,
+        // append the table at the end so the context is never silently dropped.
+        String content = template.contains(CONTEXT_TABLE_PLACEHOLDER) ?
+                template.replace(CONTEXT_TABLE_PLACEHOLDER, contextTable) :
+                template + "\n\n" + contextTable;
 
         return CONTEXT_SECTION_MARKER + "\n" + content + "\n<!-- /prethink-context -->";
     }

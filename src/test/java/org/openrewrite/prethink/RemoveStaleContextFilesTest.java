@@ -150,7 +150,7 @@ class RemoveStaleContextFilesTest {
             List.of("org.openrewrite.prethink.table.TestMapping")
           ),
           new RemoveStaleContextFiles(),
-          new UpdateAgentConfig(null)
+          new UpdateAgentConfig(null, null)
         ));
 
         InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(

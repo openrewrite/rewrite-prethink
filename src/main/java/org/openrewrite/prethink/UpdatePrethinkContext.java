@@ -57,6 +57,14 @@ public class UpdatePrethinkContext extends Recipe {
     @Nullable
     List<String> targetConfigFiles;
 
+    @Option(displayName = "Template",
+            description = "The template used to generate the context section. The `{{CONTEXT_TABLE}}` placeholder is " +
+                          "replaced with the generated context table. If not specified, a bundled default template is used.",
+            required = false,
+            example = "## Available Context\n\n{{CONTEXT_TABLE}}")
+    @Nullable
+    String template;
+
     String displayName = "Update Prethink context";
 
     String description = "Generate FINOS CALM architecture diagram and update agent configuration files. " +
@@ -93,7 +101,7 @@ public class UpdatePrethinkContext extends Recipe {
                 .recipe(new RemoveStaleContextFiles())
 
                 // Update agent config files
-                .recipe(new UpdateAgentConfig(targetConfigFiles))
+                .recipe(new UpdateAgentConfig(targetConfigFiles, template))
 
                 // Update .gitignore to allow committing context files
                 .recipe(new UpdateGitignore());
