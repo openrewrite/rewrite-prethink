@@ -26,8 +26,6 @@ import org.openrewrite.prethink.table.ProjectMetadata;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -418,11 +416,21 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
 
     /**
      * The {@code @Column} annotated fields of a data table's row class, or
-     * {@code null} when that class cannot be resolved.
+     * {@code null} when the table does not declare one the usual way.
+     * <p>
+     * The row class comes from the table instance the store holds rather than
+     * from a lookup by name: every recipe artifact in a run is loaded by its own
+     * classloader, so a table declared by another artifact -- which is most of
+     * what a composite discovers -- is not resolvable by name from here.
      */
     private @Nullable List<ColumnInfo> declaredColumns(DataTable<?> table) {
-        Class<?> rowClass = rowClass(table);
-        if (rowClass == null) {
+        Class<?> rowClass;
+        try {
+            rowClass = table.getType();
+        } catch (RuntimeException e) {
+            // getType() reads the direct superclass's type argument, so a table that
+            // reaches DataTable through an intermediate class has none to give. Skip
+            // just that table rather than losing the rest of the collection.
             return null;
         }
         List<ColumnInfo> columns = new ArrayList<>();
@@ -433,34 +441,6 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
             }
         }
         return columns;
-    }
-
-    /**
-     * The row type of a data table, read from the table instance rather than looked
-     * up by name. Every recipe artifact contributing to a run is loaded by its own
-     * classloader, so a table declared by another artifact -- which is most of what
-     * a composite discovers -- is not resolvable by name from this one.
-     */
-    private @Nullable Class<?> rowClass(DataTable<?> table) {
-        for (Class<?> c = table.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
-            Type supertype = c.getGenericSuperclass();
-            if (supertype instanceof ParameterizedType) {
-                ParameterizedType parameterized = (ParameterizedType) supertype;
-                if (DataTable.class.equals(parameterized.getRawType())) {
-                    Type row = parameterized.getActualTypeArguments()[0];
-                    if (row instanceof Class) {
-                        return (Class<?>) row;
-                    }
-                }
-            }
-        }
-        // A table that erased its row type still follows the nested `Row` convention.
-        try {
-            return Class.forName(table.getClass().getName() + "$Row", false,
-                    table.getClass().getClassLoader());
-        } catch (ClassNotFoundException | LinkageError e) {
-            return null;
-        }
     }
 
     private String tableToFilename(String tableFqn) {
