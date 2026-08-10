@@ -205,7 +205,19 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
         return result;
     }
 
-    private @Nullable String generateCalmJsonFromDataTables(ExecutionContext ctx) {
+    /**
+     * Build the CALM architecture JSON for whatever the architectural discovery
+     * recipes put in this run's data tables, or {@code null} when they found
+     * nothing to describe.
+     * <p>
+     * Public so that recipes writing the architecture somewhere other than the
+     * repository being analyzed -- notably
+     * {@code ExportOrganizationalCalmArchitecture}, which collects one file per
+     * repository into a central directory -- can render the same document
+     * without reimplementing it. Only meaningful from cycle 2 onward, once the
+     * data tables have been populated.
+     */
+    public @Nullable String generateCalmJsonFromDataTables(ExecutionContext ctx) {
         DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
 
         debug("[CALM DEBUG] store tables: " + store.getDataTables().size());

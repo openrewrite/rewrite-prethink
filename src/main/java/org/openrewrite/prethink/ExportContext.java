@@ -21,6 +21,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Value;
 import org.jspecify.annotations.Nullable;
 import org.openrewrite.*;
+import org.openrewrite.prethink.table.ContextTables;
 import org.openrewrite.text.PlainText;
 
 import java.io.StringWriter;
@@ -45,6 +46,8 @@ import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 @Value
 @EqualsAndHashCode(callSuper = false)
 public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
+
+    transient ContextTables contextTables = new ContextTables(this);
 
     @Option(displayName = "Display name",
             description = "The display name for this context, shown in agent configurations.",
@@ -241,6 +244,19 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         // depends on a sibling recipe making a change to trigger cycle 2.
         if (ctx.getCycle() != 1 || dataTables.isEmpty()) {
             return emptyList();
+        }
+
+        // Record what this context is composed of, for recipes that discover data tables
+        // rather than being told about them -- the organizational export in particular,
+        // which otherwise has no way to learn that these tables belong together. Written
+        // here because a DataTable only accepts rows in cycle 1. Every configured table is
+        // recorded rather than only those with rows, because the composition is a property
+        // of the composite: a table this repository has nothing to say about is still part
+        // of the context in a collection other repositories contribute to.
+        String contextFile = PathUtils.separatorsToUnix(CONTEXT_DIR.resolve(getContextFilename()).toString());
+        for (String tableFqn : dataTables) {
+            contextTables.insertRow(ctx, new ContextTables.Row(
+                    displayName, shortDescription, longDescription, contextFile, tableFqn));
         }
 
         List<SourceFile> contextFiles = new ArrayList<>();

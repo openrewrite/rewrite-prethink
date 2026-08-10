@@ -68,6 +68,59 @@ Prethink automatically updates coding agent configuration files to reference the
 - `.cursorrules` - Cursor
 - `.github/copilot-instructions.md` - GitHub Copilot
 
+## Organizational Context
+
+`org.openrewrite.prethink.UpdateOrganizationalPrethinkContext` combines many repositories into a single
+collection instead of leaving each one describing only itself. Point it at the same `targetDirectory` for every
+repository you analyze — the directory can live outside all of them — and start a coding agent there to reason
+across the whole organization:
+
+```
+<targetDirectory>/
+├── CLAUDE.md                                     agent instructions for the whole collection
+└── .moderne/context/
+    ├── repositories.csv                          every repository included, with its origin and branch
+    ├── tables.csv                                catalog of the combined tables, and their contexts
+    ├── contexts.csv                              catalog of the contexts those tables are grouped into
+    ├── service-endpoints.csv                     one combined table per data table, keyed by `Repository`
+    ├── test-coverage.md                          one markdown per context, as in a single repository
+    ├── codebase-context.md                       whatever no context claimed
+    ├── calm-architecture.md                      how to read the per-repository diagrams
+    └── architecture/<organization>/<repo>.json   each repository's FINOS CALM architecture
+```
+
+Every combined CSV carries a leading `Repository` column identifying where a row came from, so an agent can
+scope a question to one system, compare systems, or follow an interaction between them. Re-analyzing a
+repository replaces exactly that repository's rows, so the collection can be refreshed one repository at a time.
+
+`targetDirectory` is optional. With none given the collection is written to the working directory of the process
+running the recipe, so a working set collects into itself:
+
+```
+cd ~/workspaces/acme
+mod run . --recipe org.openrewrite.prethink.UpdateOrganizationalPrethinkContext
+```
+
+Note that this is the directory the run was started from, not the path given to `mod run` — every repository in a
+run is analyzed by one process, so there is no per-repository directory to resolve against. Name an absolute
+`targetDirectory` whenever the collection lives somewhere other than where you start the run.
+
+**It combines whatever your composite discovers.** No list of data tables is configured, so the recipe exports
+the tables the run actually produced — architectural discovery, test coverage, code comprehension, or anything
+added later — reading each table's own display name, description, and column schema to document it. Use
+`excludeDataTables` when a composite contains recipes whose tables aren't context worth keeping.
+
+**It groups them the way your composite does.** Each `ExportContext` records which tables its context is made of
+in the `ContextTables` data table, so the collection can document those same contexts — one markdown per context,
+just as in a single repository — instead of one entry covering everything. The grouping is catalogued in
+`contexts.csv` so it survives runs that don't rediscover it: a repository analyzed by a narrower composite leaves
+the other contexts alone, and a context nothing backs any more is removed along with its markdown. Tables that
+no context claims are documented together in the collection's own context.
+
+The repositories analyzed are left unchanged: the collection is written directly to the filesystem rather than
+expressed as source file changes, so there is no diff to review or commit. Use
+`UpdatePrethinkContext` instead when you want the context committed alongside the code it describes.
+
 ## Usage
 
 This library provides the core Prethink infrastructure. For a complete solution with architectural discovery recipes, see [Moderne Prethink](https://docs.moderne.io/user-documentation/agent-tools/prethink/).
