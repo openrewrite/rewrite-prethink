@@ -260,15 +260,12 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
                     writer -> writeRows(store, instances, repository, columns, writer));
             if (hasRows) {
                 DataTable<?> table = instances.get(0);
-                String[] context = contextByTableFqn.get(tableFqn);
-                // A table this run has no grouping for keeps whichever context an earlier
-                // run filed it under, so one repository analyzed by a composite that does
-                // not declare contexts does not flatten the collection for everyone else.
+                // A table keeps whichever context an earlier run filed it under; this run's
+                // grouping, if it has one, is applied to the whole catalog below.
                 String[] catalogued = tableIndex.get(filename);
-                String contextName = context != null ? context[0] :
-                        catalogued != null ? catalogued[4] : "";
                 tableIndex.put(filename, new String[]{
-                        filename, tableFqn, table.getDisplayName(), table.getDescription(), contextName});
+                        filename, tableFqn, table.getDisplayName(), table.getDescription(),
+                        catalogued == null ? "" : catalogued[4]});
             } else {
                 tableIndex.remove(filename);
             }
@@ -297,6 +294,23 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
                     project == null ? "" : nullToEmpty(project.getDescription()));
             return 1;
         });
+
+        // A catalogued table whose combined CSV is no longer in the collection -- emptied
+        // by the sweep above, dropped by a composite that stopped exporting it, or removed
+        // by hand -- leaves the catalog, so nothing documents a file that is not there.
+        tableIndex.values().removeIf(catalogued -> !Files.exists(layout.context.resolve(catalogued[0])));
+
+        // The grouping describes the composite, not this repository, so it files every
+        // table in the collection it covers rather than only the ones this repository
+        // just contributed. A collection therefore takes on the layout of the composite
+        // that knows about the most contexts as soon as any one repository is analyzed
+        // by it, instead of only once every repository has been.
+        for (String[] catalogued : tableIndex.values()) {
+            String[] context = contextByTableFqn.get(catalogued[1]);
+            if (context != null) {
+                catalogued[4] = context[0];
+            }
+        }
 
         writeIndex(tablesCsv, TABLE_INDEX_HEADERS, tableIndex);
 
@@ -393,6 +407,10 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
      */
     private boolean exports(String tableFqn) {
         if (excludeDataTables != null && excludeDataTables.contains(tableFqn)) {
+            return false;
+        }
+        if (ContextTables.class.getName().equals(tableFqn)) {
+            // How the contexts are laid out, not something to read about in one of them.
             return false;
         }
         return dataTables == null || dataTables.isEmpty() || dataTables.contains(tableFqn);

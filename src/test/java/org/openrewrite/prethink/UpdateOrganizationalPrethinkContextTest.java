@@ -310,6 +310,36 @@ class UpdateOrganizationalPrethinkContextTest {
     }
 
     /**
+     * The grouping describes the composite rather than the repository it was
+     * discovered in, so one repository analyzed by a composite that declares
+     * contexts is enough to lay out a collection every repository contributed to.
+     */
+    @Test
+    void filesTablesOtherRepositoriesContributed(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
+        // A repository analyzed before any context was declared: its rows land in the umbrella.
+        analyze(collection, dataTables.resolve("orders"), "acme/orders-service", "orders-service");
+        run(dataTables.resolve("orders-coverage"), "acme/orders-service",
+          List.of(new PopulateArchitecture("orders-service"), new PopulateTestMapping("OrdersControllerTest")),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+        assertThat(read(collection.resolve(".moderne/context/codebase-context.md"))).contains("test-mapping.csv");
+
+        // A different repository, analyzed by a composite that does declare contexts,
+        // contributing nothing to the test mapping table itself.
+        run(dataTables.resolve("shipping"), "acme/shipping-service",
+          List.of(new PopulateArchitecture("shipping-service"),
+            new ExportContext("Test Coverage", "Maps tests to implementations",
+              "Which tests cover which implementation methods.",
+              List.of("org.openrewrite.prethink.table.TestMapping"))),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+
+        assertThat(read(collection.resolve(".moderne/context/test-coverage.md")))
+          .as("a table only another repository contributed is filed under the newly declared context")
+          .contains("[`.moderne/context/test-mapping.csv`](.moderne/context/test-mapping.csv)");
+        assertThat(read(collection.resolve(".moderne/context/codebase-context.md")))
+          .doesNotContain("test-mapping.csv");
+    }
+
+    /**
      * The catalog is what makes removal exact: a context is this recipe's to
      * delete because it is listed there, which is what keeps the sweep away from
      * markdown the other organizational recipes write into the same directory.
@@ -433,6 +463,31 @@ class UpdateOrganizationalPrethinkContextTest {
 
         assertThat(OrganizationalContext.targetPath(null))
           .isEqualTo(Paths.get("").toAbsolutePath().normalize());
+    }
+
+    /**
+     * The catalog outlives the runs that fill it, so it has to be reconciled with
+     * what is actually in the collection: a table the composite stops exporting
+     * altogether is never visited by the sweep, which only walks the files it
+     * finds.
+     */
+    @Test
+    void dropsCatalogedTablesThatAreNoLongerInTheCollection(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
+        run(dataTables.resolve("orders"), "acme/orders-service",
+          List.of(new PopulateArchitecture("orders-service"), new PopulateTestMapping("OrdersControllerTest")),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+        Files.delete(collection.resolve(".moderne/context/test-mapping.csv"));
+
+        // Analyzed again by a composite that no longer produces it at all, so the sweep,
+        // which walks the files present, never reaches it.
+        analyze(collection, dataTables.resolve("orders-again"), "acme/orders-service", "orders-service");
+
+        assertThat(read(collection.resolve(".moderne/context/tables.csv")))
+          .doesNotContain("test-mapping.csv")
+          .contains("service-endpoints.csv");
+        assertThat(read(collection.resolve(".moderne/context/codebase-context.md")))
+          .as("and nothing documents a table file that is not there")
+          .doesNotContain("test-mapping.csv");
     }
 
     @Test
