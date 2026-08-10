@@ -91,6 +91,18 @@ Every combined CSV carries a leading `Repository` column identifying where a row
 scope a question to one system, compare systems, or follow an interaction between them. Re-analyzing a
 repository replaces exactly that repository's rows, so the collection can be refreshed one repository at a time.
 
+`targetDirectory` is optional. With none given the collection is written to the working directory of the process
+running the recipe, so a working set collects into itself:
+
+```
+cd ~/workspaces/acme
+mod run . --recipe org.openrewrite.prethink.UpdateOrganizationalPrethinkContext
+```
+
+Note that this is the directory the run was started from, not the path given to `mod run` — every repository in a
+run is analyzed by one process, so there is no per-repository directory to resolve against. Name an absolute
+`targetDirectory` whenever the collection lives somewhere other than where you start the run.
+
 **It combines whatever your composite discovers.** No list of data tables is configured, so the recipe exports
 the tables the run actually produced — architectural discovery, test coverage, code comprehension, or anything
 added later — reading each table's own display name, description, and column schema to document it. Use

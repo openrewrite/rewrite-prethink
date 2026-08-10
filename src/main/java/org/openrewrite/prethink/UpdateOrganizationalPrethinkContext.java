@@ -48,9 +48,14 @@ public class UpdateOrganizationalPrethinkContext extends Recipe {
             description = "The directory the combined context is written to, which may be outside of the " +
                           "repository being analyzed so that every repository contributes to one central " +
                           "collection. Context files are written to `.moderne/context/` within it and agent " +
-                          "config files at its root. A relative path resolves against the working directory of " +
-                          "the process running the recipe, so an absolute path is recommended.",
+                          "config files at its root. If not specified, the working directory of the process " +
+                          "running the recipe is used -- the directory `mod run` was invoked from, which is " +
+                          "the root of the working set when run as `mod run .`. A relative path resolves the " +
+                          "same way, so an absolute path is recommended whenever the collection lives " +
+                          "somewhere else.",
+            required = false,
             example = "/var/lib/prethink/acme")
+    @Nullable
     String targetDirectory;
 
     @Option(displayName = "Repository",

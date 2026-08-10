@@ -58,9 +58,12 @@ public class WriteOrganizationalAgentConfig extends ScanningRecipe<WriteOrganiza
     @Option(displayName = "Target directory",
             description = "The directory holding the combined context, which may be outside of the repository " +
                           "being analyzed. Agent config files are written at its root, describing the context " +
-                          "in its `.moderne/context/` directory. A relative path resolves against the working " +
-                          "directory of the process running the recipe, so an absolute path is recommended.",
+                          "in its `.moderne/context/` directory. A relative path, and no path at all, resolve " +
+                          "against the working directory of the process running the recipe, so an absolute " +
+                          "path is recommended.",
+            required = false,
             example = "/var/lib/prethink/acme")
+    @Nullable
     String targetDirectory;
 
     @Option(displayName = "Target config files",
@@ -140,7 +143,7 @@ public class WriteOrganizationalAgentConfig extends ScanningRecipe<WriteOrganiza
                 locked(layout, () -> write(layout));
             } catch (IOException e) {
                 throw new UncheckedIOException(
-                        "Unable to write the organizational agent configuration to " + targetDirectory, e);
+                        "Unable to write the organizational agent configuration to " + targetPath(targetDirectory), e);
             }
         }
     }

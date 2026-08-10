@@ -26,6 +26,8 @@ import org.openrewrite.prethink.table.ProjectMetadata;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -60,9 +62,12 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
             description = "The directory the combined context is written to, which may be outside of the " +
                           "repository being analyzed so that every repository contributes to one central " +
                           "collection. Context files are written to `.moderne/context/` within it, mirroring " +
-                          "the per-repository layout. A relative path resolves against the working directory " +
-                          "of the process running the recipe, so an absolute path is recommended.",
+                          "the per-repository layout. A relative path, and no path at all, resolve against the " +
+                          "working directory of the process running the recipe, so an absolute path is " +
+                          "recommended.",
+            required = false,
             example = "/var/lib/prethink/acme")
+    @Nullable
     String targetDirectory;
 
     @Option(displayName = "Repository",
@@ -212,7 +217,7 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
                 locked(layout, () -> write(layout, store, instancesByFqn, repository, acc.provenance, project));
             } catch (IOException e) {
                 throw new UncheckedIOException(
-                        "Unable to write the organizational Prethink context to " + targetDirectory, e);
+                        "Unable to write the organizational Prethink context to " + targetPath(targetDirectory), e);
             }
         }
     }
@@ -229,15 +234,17 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
         Map<String, String[]> tableIndex = readTableIndex(tablesCsv);
 
         Set<String> handled = new HashSet<>();
+        Map<String, List<ColumnInfo>> columnsByFqn = new HashMap<>();
         for (Map.Entry<String, List<DataTable<?>>> entry : instancesByFqn.entrySet()) {
             String tableFqn = entry.getKey();
             List<DataTable<?>> instances = entry.getValue();
-            List<ColumnInfo> columns = declaredColumns(tableFqn);
-            // Skip tables whose Row class can't be resolved on this classpath -- without
-            // the schema there is neither a header to write nor a schema to document.
+            List<ColumnInfo> columns = declaredColumns(instances.get(0));
+            // Skip tables whose Row class can't be resolved at all -- without the schema
+            // there is neither a header to write nor a schema to document.
             if (columns == null) {
                 continue;
             }
+            columnsByFqn.put(tableFqn, columns);
             String filename = tableToFilename(tableFqn);
             handled.add(filename);
             boolean hasRows = mergeCsv(layout.context.resolve(filename), repository, headers(columns),
@@ -288,7 +295,7 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
             // repositories are still contributing to.
             List<TableInfo> documented = new ArrayList<>();
             for (String[] table : tableIndex.values()) {
-                documented.add(tableInfo(layout, table));
+                documented.add(tableInfo(layout, table, columnsByFqn));
             }
             writeIfChanged(markdown, generateMarkdown(documented, repositoryCount(repositoriesCsv)));
         }
@@ -378,14 +385,15 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
      * Describe a catalogued table for the markdown.
      * <p>
      * The display name and description come from the catalog, so a table this run
-     * contributed nothing to is still described. Its columns come from the
-     * {@code $Row} class when the composite that produced it is on this
-     * classpath, and otherwise from the combined CSV's own header row -- which
-     * costs the per-column descriptions but keeps the schema accurate.
+     * contributed nothing to is still described. Its columns come from the row
+     * class of the table this run exported, and otherwise from the combined CSV's
+     * own header row -- which costs the per-column descriptions but keeps the
+     * schema accurate for tables only other repositories contribute to.
      */
-    private TableInfo tableInfo(Layout layout, String[] catalogued) throws IOException {
+    private TableInfo tableInfo(Layout layout, String[] catalogued,
+                                Map<String, List<ColumnInfo>> columnsByFqn) throws IOException {
         String filename = catalogued[0];
-        List<ColumnInfo> columns = declaredColumns(catalogued[1]);
+        List<ColumnInfo> columns = columnsByFqn.get(catalogued[1]);
         if (columns == null) {
             columns = new ArrayList<>();
             String[] headers = headersOf(layout.context.resolve(filename));
@@ -409,14 +417,12 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
     }
 
     /**
-     * The {@code @Column} annotated fields of a data table's {@code $Row} class,
-     * or {@code null} when that class cannot be resolved on this classpath.
+     * The {@code @Column} annotated fields of a data table's row class, or
+     * {@code null} when that class cannot be resolved.
      */
-    private @Nullable List<ColumnInfo> declaredColumns(String tableFqn) {
-        Class<?> rowClass;
-        try {
-            rowClass = Class.forName(tableFqn + "$Row");
-        } catch (ClassNotFoundException | LinkageError e) {
+    private @Nullable List<ColumnInfo> declaredColumns(DataTable<?> table) {
+        Class<?> rowClass = rowClass(table);
+        if (rowClass == null) {
             return null;
         }
         List<ColumnInfo> columns = new ArrayList<>();
@@ -427,6 +433,34 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
             }
         }
         return columns;
+    }
+
+    /**
+     * The row type of a data table, read from the table instance rather than looked
+     * up by name. Every recipe artifact contributing to a run is loaded by its own
+     * classloader, so a table declared by another artifact -- which is most of what
+     * a composite discovers -- is not resolvable by name from this one.
+     */
+    private @Nullable Class<?> rowClass(DataTable<?> table) {
+        for (Class<?> c = table.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            Type supertype = c.getGenericSuperclass();
+            if (supertype instanceof ParameterizedType) {
+                ParameterizedType parameterized = (ParameterizedType) supertype;
+                if (DataTable.class.equals(parameterized.getRawType())) {
+                    Type row = parameterized.getActualTypeArguments()[0];
+                    if (row instanceof Class) {
+                        return (Class<?>) row;
+                    }
+                }
+            }
+        }
+        // A table that erased its row type still follows the nested `Row` convention.
+        try {
+            return Class.forName(table.getClass().getName() + "$Row", false,
+                    table.getClass().getClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
     }
 
     private String tableToFilename(String tableFqn) {

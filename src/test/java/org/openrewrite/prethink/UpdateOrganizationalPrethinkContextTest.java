@@ -29,9 +29,14 @@ import org.openrewrite.prethink.table.ServiceEndpoints;
 import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.text.PlainText;
 
+import javax.tools.ToolProvider;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -243,6 +248,30 @@ class UpdateOrganizationalPrethinkContextTest {
           .contains("test-mapping.csv,org.openrewrite.prethink.table.TestMapping,Test mapping");
     }
 
+    /**
+     * Every recipe artifact contributing to a run is loaded by its own classloader,
+     * so most of what a composite discovers is declared by classes this module
+     * cannot resolve by name. A table has to be described from the instance the
+     * store holds rather than looked up, or the run exports only its own tables.
+     */
+    @Test
+    void combinesTablesDeclaredByAnotherRecipeArtifact(@TempDir Path collection, @TempDir Path dataTables,
+                                                       @TempDir Path artifact) throws Exception {
+        run(dataTables, "acme/orders-service",
+          List.of(new PopulateArchitecture("orders-service"), new PopulateForeignTable(foreignTable(artifact))),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+
+        assertThat(read(collection.resolve(".moderne/context/foreign-metrics.csv")))
+          .as("a table only another artifact's classloader can resolve is still combined")
+          .contains("Repository,Class,Score")
+          .contains("acme/orders-service,com.example.Controller,42");
+        assertThat(read(collection.resolve(".moderne/context/tables.csv")))
+          .contains("foreign-metrics.csv,foreign.ForeignMetrics,Foreign metrics");
+        assertThat(read(collection.resolve(".moderne/context/codebase-context.md")))
+          .as("and is documented from the columns that foreign class declares")
+          .contains("| Class | The class measured |");
+    }
+
     @Test
     void excludesDataTablesOnRequest(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
         run(dataTables, "acme/orders-service",
@@ -321,6 +350,24 @@ class UpdateOrganizationalPrethinkContextTest {
           .doesNotContain("test-mapping.csv");
     }
 
+    /**
+     * Every repository in a `mod run` is analyzed by one process, so there is no
+     * per-repository directory a recipe could default to -- only the directory
+     * the run itself was started in, which is the collection root when the run is
+     * started from it.
+     */
+    @Test
+    void collectsIntoTheDirectoryTheRunStartedInWhenNoTargetIsNamed() {
+        assertThat(new UpdateOrganizationalPrethinkContext(null, null, null, null, null)
+          .getDescriptor().getOptions())
+          .filteredOn(option -> "targetDirectory".equals(option.getName()))
+          .singleElement()
+          .satisfies(option -> assertThat(option.isRequired()).isFalse());
+
+        assertThat(OrganizationalContext.targetPath(null))
+          .isEqualTo(Paths.get("").toAbsolutePath().normalize());
+    }
+
     @Test
     void repositoryNamesAreSafeToUseAsPaths() {
         assertThat(OrganizationalContext.sanitize("acme/orders-service")).isEqualTo("acme/orders-service");
@@ -370,6 +417,47 @@ class UpdateOrganizationalPrethinkContextTest {
               Tree.randomId(), "https://github.com/" + origin + ".git", "main", "abc1234", null, null, null))));
         }
         return List.of(source);
+    }
+
+    /**
+     * A data table declared outside this module entirely: compiled into its own
+     * directory and loaded by its own classloader, the way the CLI loads each
+     * recipe artifact, so that its class is unresolvable by name from here.
+     */
+    private Class<?> foreignTable(Path artifact) throws Exception {
+        Path source = artifact.resolve("ForeignMetrics.java");
+        Files.writeString(source, """
+          package foreign;
+
+          import org.openrewrite.Column;
+          import org.openrewrite.DataTable;
+          import org.openrewrite.Recipe;
+
+          public class ForeignMetrics extends DataTable<ForeignMetrics.Row> {
+              public ForeignMetrics(Recipe recipe) {
+                  super(recipe, "Foreign metrics", "Metrics declared by another recipe artifact.");
+              }
+
+              public record Row(
+                      @Column(displayName = "Class", description = "The class measured")
+                      String className,
+
+                      @Column(displayName = "Score", description = "The score of the class")
+                      int score) {
+              }
+          }
+          """);
+
+        Path classes = artifact.resolve("classes");
+        int compiled = ToolProvider.getSystemJavaCompiler().run(null, null, null,
+          "-cp", System.getProperty("java.class.path"), "-d", classes.toString(), source.toString());
+        assertThat(compiled).as("the foreign artifact compiles").isZero();
+
+        // Parented to the loader that has rewrite-core, so DataTable is the same type on
+        // both sides, exactly as it is for a recipe artifact loaded by the CLI.
+        URLClassLoader artifactLoader = new URLClassLoader(
+          new URL[]{classes.toUri().toURL()}, DataTable.class.getClassLoader());
+        return artifactLoader.loadClass("foreign.ForeignMetrics");
     }
 
     private String read(Path file) throws IOException {
@@ -443,6 +531,43 @@ class UpdateOrganizationalPrethinkContextTest {
                 }
             }
             return camel.toString();
+        }
+    }
+
+    /**
+     * Populates a data table whose class this module has no compile-time access
+     * to, standing in for the tables every other recipe artifact declares.
+     */
+    @Getter
+    public static class PopulateForeignTable extends Recipe {
+        private final transient DataTable<Object> metrics;
+        private final transient Constructor<?> row;
+
+        @SuppressWarnings("unchecked")
+        public PopulateForeignTable(Class<?> tableClass) throws Exception {
+            metrics = (DataTable<Object>) tableClass.getConstructor(Recipe.class).newInstance(this);
+            row = Class.forName(tableClass.getName() + "$Row", false, tableClass.getClassLoader())
+              .getConstructor(String.class, int.class);
+        }
+
+        String displayName = "Populate a foreign data table";
+        String description = "Populates a data table declared by another recipe artifact.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf && sf.getSourcePath().toString().endsWith("Controller.java")) {
+                        try {
+                            metrics.insertRow(ctx, row.newInstance("com.example.Controller", 42));
+                        } catch (ReflectiveOperationException e) {
+                            throw new IllegalStateException(e);
+                        }
+                    }
+                    return tree;
+                }
+            };
         }
     }
 

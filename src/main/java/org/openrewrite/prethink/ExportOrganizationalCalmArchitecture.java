@@ -54,9 +54,11 @@ public class ExportOrganizationalCalmArchitecture extends ScanningRecipe<ExportO
     @Option(displayName = "Target directory",
             description = "The directory holding the combined context, which may be outside of the repository " +
                           "being analyzed. Architecture files are written to `.moderne/context/architecture/` " +
-                          "within it. A relative path resolves against the working directory of the process " +
-                          "running the recipe, so an absolute path is recommended.",
+                          "within it. A relative path, and no path at all, resolve against the working " +
+                          "directory of the process running the recipe, so an absolute path is recommended.",
+            required = false,
             example = "/var/lib/prethink/acme")
+    @Nullable
     String targetDirectory;
 
     @Option(displayName = "Repository",
@@ -142,7 +144,7 @@ public class ExportOrganizationalCalmArchitecture extends ScanningRecipe<ExportO
                 locked(layout, () -> write(layout, repository, architecture));
             } catch (IOException e) {
                 throw new UncheckedIOException(
-                        "Unable to write the organizational CALM architecture to " + targetDirectory, e);
+                        "Unable to write the organizational CALM architecture to " + targetPath(targetDirectory), e);
             }
         }
     }

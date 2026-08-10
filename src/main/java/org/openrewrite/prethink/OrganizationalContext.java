@@ -127,13 +127,24 @@ final class OrganizationalContext {
 
     /**
      * Resolve the target directory and create the context directory within it.
-     * A relative target resolves against the working directory of the process
-     * running the recipe, which is why absolute paths are recommended.
+     * A relative target, and an unspecified one, resolve against the working
+     * directory of the process running the recipe -- which is the directory
+     * {@code mod run} was invoked from, not the path it was given, since every
+     * repository in a run is analyzed by one process. Naming a directory is
+     * therefore the only way to collect into somewhere else.
      */
-    static Layout layout(String targetDirectory) throws IOException {
-        Layout layout = new Layout(Paths.get(targetDirectory).toAbsolutePath().normalize());
+    static Layout layout(@Nullable String targetDirectory) throws IOException {
+        Layout layout = new Layout(targetPath(targetDirectory));
         Files.createDirectories(layout.context);
         return layout;
+    }
+
+    /**
+     * Where a target directory resolves to, named in failures so that an
+     * unspecified one is reported as the directory it actually resolved to.
+     */
+    static Path targetPath(@Nullable String targetDirectory) {
+        return Paths.get(targetDirectory == null ? "" : targetDirectory).toAbsolutePath().normalize();
     }
 
     @FunctionalInterface
