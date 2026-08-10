@@ -90,7 +90,24 @@ final class OrganizationalContext {
      */
     static final String TABLES_FILE = "tables.csv";
 
-    static final String[] TABLE_INDEX_HEADERS = {"Table file", "Data table", "Display name", "Description"};
+    static final String[] TABLE_INDEX_HEADERS =
+            {"Table file", "Data table", "Display name", "Description", "Context"};
+
+    /**
+     * Catalog of the contexts the combined tables are grouped into: what each one
+     * is called, how it describes itself, and which markdown file documents it.
+     * <p>
+     * The grouping is discovered from the composite being run, one repository at
+     * a time, so it has to outlive the run that discovered it the same way the
+     * table catalog does. Keeping it here rather than inferring it from the files
+     * present also makes removal exact: a context is this recipe's to delete when
+     * it is catalogued here, which is what keeps the sweep away from the markdown
+     * other recipes write into the same directory.
+     */
+    static final String CONTEXTS_FILE = "contexts.csv";
+
+    static final String[] CONTEXT_INDEX_HEADERS =
+            {"Context", "Context file", "Short description", "Long description"};
 
     static final String UNKNOWN_REPOSITORY = "unknown";
 
@@ -396,7 +413,8 @@ final class OrganizationalContext {
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(contextDir, "*.csv")) {
             for (Path entry : entries) {
                 String filename = entry.getFileName().toString();
-                if (!REPOSITORIES_FILE.equals(filename) && !TABLES_FILE.equals(filename)) {
+                if (!REPOSITORIES_FILE.equals(filename) && !TABLES_FILE.equals(filename) &&
+                    !CONTEXTS_FILE.equals(filename)) {
                     tables.add(entry);
                 }
             }
@@ -406,24 +424,26 @@ final class OrganizationalContext {
     }
 
     /**
-     * The table catalog, keyed by CSV filename and ordered so that the files
-     * generated from it are stable across runs.
+     * A catalog, keyed by its first column and ordered so that the files
+     * generated from it are stable across runs. Columns are matched by header
+     * name, so a catalog written before a column existed reads back with that
+     * column empty rather than failing.
      */
-    static Map<String, String[]> readTableIndex(Path indexFile) throws IOException {
+    static Map<String, String[]> readIndex(Path indexFile, String[] headers) throws IOException {
         Map<String, String[]> index = new TreeMap<>();
         if (!Files.exists(indexFile)) {
             return index;
         }
-        CsvParser parser = new CsvParser(parserSettings(TABLE_INDEX_HEADERS.length));
+        CsvParser parser = new CsvParser(parserSettings(headers.length));
         try (Reader reader = Files.newBufferedReader(indexFile, UTF_8)) {
             parser.beginParsing(reader);
             int[] columns = null;
             String[] row;
             while ((row = parser.parseNext()) != null) {
                 if (columns == null) {
-                    columns = mapColumns(TABLE_INDEX_HEADERS, parser.getContext().headers());
+                    columns = mapColumns(headers, parser.getContext().headers());
                 }
-                String[] values = new String[TABLE_INDEX_HEADERS.length];
+                String[] values = new String[headers.length];
                 for (int i = 0; i < values.length; i++) {
                     int at = columns[i];
                     values[i] = at < 0 || at >= row.length || row[at] == null ? "" : row[at];
@@ -436,7 +456,7 @@ final class OrganizationalContext {
         return index;
     }
 
-    static void writeTableIndex(Path indexFile, Map<String, String[]> index) throws IOException {
+    static void writeIndex(Path indexFile, String[] headers, Map<String, String[]> index) throws IOException {
         if (index.isEmpty()) {
             Files.deleteIfExists(indexFile);
             return;
@@ -444,7 +464,7 @@ final class OrganizationalContext {
         StringWriter rendered = new StringWriter();
         CsvWriter writer = new CsvWriter(rendered, new CsvWriterSettings());
         try {
-            writer.writeHeaders(TABLE_INDEX_HEADERS);
+            writer.writeHeaders(headers);
             for (String[] row : index.values()) {
                 writer.writeRow((Object[]) row);
             }

@@ -21,6 +21,7 @@ import lombok.Value;
 import org.jspecify.annotations.Nullable;
 import org.openrewrite.*;
 import org.openrewrite.marker.GitProvenance;
+import org.openrewrite.prethink.table.ContextTables;
 import org.openrewrite.prethink.table.ProjectMetadata;
 
 import java.io.IOException;
@@ -225,11 +226,21 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
                        ProjectMetadata.@Nullable Row project) throws IOException {
         Path repositoriesCsv = layout.context.resolve(REPOSITORIES_FILE);
         Path tablesCsv = layout.context.resolve(TABLES_FILE);
+        Path contextsCsv = layout.context.resolve(CONTEXTS_FILE);
         // A repository already in the index may have left rows in tables it no longer
         // contributes to, which have to be rewritten to purge them. A repository being
         // exported for the first time can only add rows, so untouched tables are skipped.
         boolean previouslyExported = containsRepository(repositoriesCsv, repository);
-        Map<String, String[]> tableIndex = readTableIndex(tablesCsv);
+        Map<String, String[]> tableIndex = readIndex(tablesCsv, TABLE_INDEX_HEADERS);
+        Map<String, String[]> contextIndex = readIndex(contextsCsv, CONTEXT_INDEX_HEADERS);
+
+        // How the composite being run groups its tables into named contexts, which is
+        // the only place that grouping exists: the recipes that declare it write into
+        // the repository, not into this collection.
+        Map<String, String[]> contextByTableFqn = declaredContexts(store);
+        for (String[] context : contextByTableFqn.values()) {
+            contextIndex.put(context[0], context);
+        }
 
         Set<String> handled = new HashSet<>();
         Map<String, List<ColumnInfo>> columnsByFqn = new HashMap<>();
@@ -249,8 +260,15 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
                     writer -> writeRows(store, instances, repository, columns, writer));
             if (hasRows) {
                 DataTable<?> table = instances.get(0);
+                String[] context = contextByTableFqn.get(tableFqn);
+                // A table this run has no grouping for keeps whichever context an earlier
+                // run filed it under, so one repository analyzed by a composite that does
+                // not declare contexts does not flatten the collection for everyone else.
+                String[] catalogued = tableIndex.get(filename);
+                String contextName = context != null ? context[0] :
+                        catalogued != null ? catalogued[4] : "";
                 tableIndex.put(filename, new String[]{
-                        filename, tableFqn, table.getDisplayName(), table.getDescription()});
+                        filename, tableFqn, table.getDisplayName(), table.getDescription(), contextName});
             } else {
                 tableIndex.remove(filename);
             }
@@ -280,23 +298,93 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
             return 1;
         });
 
-        writeTableIndex(tablesCsv, tableIndex);
+        writeIndex(tablesCsv, TABLE_INDEX_HEADERS, tableIndex);
 
-        Path markdown = layout.context.resolve(toKebabCase(displayName) + ".md");
-        if (tableIndex.isEmpty()) {
-            // Nothing in the whole collection describes this context, so leave no
-            // description behind, mirroring ExportContext's handling of empty tables.
-            Files.deleteIfExists(markdown);
-        } else {
-            // Documented from the catalog rather than from this run, so that a repository
-            // with a narrower composite does not erase the description of a table other
-            // repositories are still contributing to.
-            List<TableInfo> documented = new ArrayList<>();
-            for (String[] table : tableIndex.values()) {
-                documented.add(tableInfo(layout, table, columnsByFqn));
-            }
-            writeIfChanged(markdown, generateMarkdown(documented, repositoryCount(repositoriesCsv)));
+        // Documented from the catalog rather than from this run, so that a repository
+        // with a narrower composite does not erase the description of a table other
+        // repositories are still contributing to.
+        Map<String, List<TableInfo>> tablesByContext = new TreeMap<>();
+        for (String[] table : tableIndex.values()) {
+            tablesByContext.computeIfAbsent(table[4], k -> new ArrayList<>())
+                    .add(tableInfo(layout, table, columnsByFqn));
         }
+
+        int repositories = repositoryCount(repositoriesCsv);
+
+        // The umbrella this recipe is configured as, holding whatever no context claimed.
+        Path umbrella = layout.context.resolve(toKebabCase(displayName) + ".md");
+        List<TableInfo> unclaimed = tablesByContext.get("");
+        if (unclaimed == null) {
+            Files.deleteIfExists(umbrella);
+        } else {
+            writeIfChanged(umbrella, generateMarkdown(
+                    displayName, shortDescription, longDescription, unclaimed, repositories));
+        }
+
+        // One markdown per context the collection knows about, mirroring the per-repository
+        // layout. A catalogued context with nothing left backing it is removed along with
+        // its markdown, which is safe to delete precisely because it is catalogued.
+        for (Iterator<Map.Entry<String, String[]>> it = contextIndex.entrySet().iterator(); it.hasNext(); ) {
+            String[] context = it.next().getValue();
+            Path markdown = layout.context.resolve(contextFilename(context));
+            List<TableInfo> tables = tablesByContext.get(context[0]);
+            if (tables == null) {
+                Files.deleteIfExists(markdown);
+                it.remove();
+            } else {
+                writeIfChanged(markdown, generateMarkdown(
+                        context[0], context[2], context[3], tables, repositories));
+            }
+        }
+
+        writeIndex(contextsCsv, CONTEXT_INDEX_HEADERS, contextIndex);
+    }
+
+    /**
+     * The markdown a catalogued context is documented in. Named from the context
+     * itself rather than from the path the repository recorded, so a collection
+     * lays its contexts out the same way whatever produced them.
+     */
+    private String contextFilename(String[] context) {
+        return toKebabCase(context[0]) + ".md";
+    }
+
+    /**
+     * How the composite being run groups its data tables into contexts, keyed by
+     * data table, as recorded by the recipes exporting those contexts into the
+     * repositories themselves.
+     * <p>
+     * Read by class name and column name rather than by type: the recipe that
+     * declares a context is loaded by its own artifact's classloader, so the
+     * {@code ContextTables} it writes is a different class from this one even
+     * when both come from this module.
+     */
+    private Map<String, String[]> declaredContexts(DataTableStore store) {
+        Map<String, String[]> byTable = new HashMap<>();
+        for (DataTable<?> table : store.getDataTables()) {
+            if (!ContextTables.class.getName().equals(table.getClass().getName())) {
+                continue;
+            }
+            List<ColumnInfo> columns = declaredColumns(table);
+            if (columns == null) {
+                continue;
+            }
+            for (Map<String, String> row : rows(store, table, columns)) {
+                String context = row.get("Context");
+                String dataTable = row.get("Data table");
+                if (context == null || context.isEmpty() || dataTable == null || dataTable.isEmpty()) {
+                    continue;
+                }
+                // First declaration wins, so a table two contexts both claim lands in one
+                // of them rather than being documented twice.
+                byTable.putIfAbsent(dataTable, new String[]{
+                        context,
+                        toKebabCase(context) + ".md",
+                        nullToEmpty(row.get("Short description")),
+                        nullToEmpty(row.get("Long description"))});
+            }
+        }
+        return byTable;
     }
 
     /**
@@ -342,7 +430,38 @@ public class ExportOrganizationalContext extends ScanningRecipe<ExportOrganizati
         return written[0];
     }
 
-    private String generateMarkdown(List<TableInfo> tables, int repositories) {
+    /**
+     * Every row of a data table, as column display name to value. Used for the
+     * few tables this recipe reads rather than copies, which -- like the tables
+     * it copies -- can come from any artifact's classloader.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, String>> rows(DataTableStore store, DataTable<?> table, List<ColumnInfo> columns) {
+        List<Map<String, String>> rows = new ArrayList<>();
+        Class<? extends DataTable<Object>> dataTableClass = (Class<? extends DataTable<Object>>) table.getClass();
+        try (Stream<Object> stream = store.getRows(dataTableClass, table.getGroup())) {
+            stream.forEach(row -> {
+                Map<String, String> values = new HashMap<>();
+                for (ColumnInfo column : columns) {
+                    if (column.field == null) {
+                        continue;
+                    }
+                    try {
+                        column.field.setAccessible(true);
+                        Object value = column.field.get(row);
+                        values.put(column.displayName, value == null ? "" : value.toString());
+                    } catch (IllegalAccessException | RuntimeException e) {
+                        values.put(column.displayName, "");
+                    }
+                }
+                rows.add(values);
+            });
+        }
+        return rows;
+    }
+
+    private String generateMarkdown(String displayName, String shortDescription, String longDescription,
+                                    List<TableInfo> tables, int repositories) {
         StringBuilder sb = new StringBuilder();
 
         sb.append("# ").append(displayName).append("\n\n");

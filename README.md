@@ -80,9 +80,11 @@ across the whole organization:
 ├── CLAUDE.md                                     agent instructions for the whole collection
 └── .moderne/context/
     ├── repositories.csv                          every repository included, with its origin and branch
-    ├── tables.csv                                catalog of the combined tables
+    ├── tables.csv                                catalog of the combined tables, and their contexts
+    ├── contexts.csv                              catalog of the contexts those tables are grouped into
     ├── service-endpoints.csv                     one combined table per data table, keyed by `Repository`
-    ├── codebase-context.md                       schema and usage of the combined tables
+    ├── test-coverage.md                          one markdown per context, as in a single repository
+    ├── codebase-context.md                       whatever no context claimed
     ├── calm-architecture.md                      how to read the per-repository diagrams
     └── architecture/<organization>/<repo>.json   each repository's FINOS CALM architecture
 ```
@@ -106,8 +108,14 @@ run is analyzed by one process, so there is no per-repository directory to resol
 **It combines whatever your composite discovers.** No list of data tables is configured, so the recipe exports
 the tables the run actually produced — architectural discovery, test coverage, code comprehension, or anything
 added later — reading each table's own display name, description, and column schema to document it. Use
-`excludeDataTables` when a composite contains recipes whose tables aren't context worth keeping, or declare
-`ExportOrganizationalContext` directly if you want tables grouped into several named contexts.
+`excludeDataTables` when a composite contains recipes whose tables aren't context worth keeping.
+
+**It groups them the way your composite does.** Each `ExportContext` records which tables its context is made of
+in the `ContextTables` data table, so the collection can document those same contexts — one markdown per context,
+just as in a single repository — instead of one entry covering everything. The grouping is catalogued in
+`contexts.csv` so it survives runs that don't rediscover it: a repository analyzed by a narrower composite leaves
+the other contexts alone, and a context nothing backs any more is removed along with its markdown. Tables that
+no context claims are documented together in the collection's own context.
 
 The repositories analyzed are left unchanged: the collection is written directly to the filesystem rather than
 expressed as source file changes, so there is no diff to review or commit. Use

@@ -272,6 +272,73 @@ class UpdateOrganizationalPrethinkContextTest {
           .contains("| Class | The class measured |");
     }
 
+    /**
+     * A composite groups its tables into named contexts, and a collection is only
+     * as navigable as the per-repository context it combines, so it lays those
+     * same contexts out rather than presenting one undifferentiated pile.
+     */
+    @Test
+    void groupsTablesIntoTheContextsTheCompositeDeclared(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
+        run(dataTables, "acme/orders-service",
+          List.of(new PopulateArchitecture("orders-service"), new PopulateTestMapping("OrdersControllerTest"),
+            new ExportContext("Test Coverage", "Maps tests to implementations",
+              "Which tests cover which implementation methods.",
+              List.of("org.openrewrite.prethink.table.TestMapping"))),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+
+        assertThat(read(collection.resolve(".moderne/context/test-coverage.md")))
+          .as("a declared context is documented under its own name")
+          .contains("# Test Coverage")
+          .contains("Maps tests to implementations")
+          .contains("[`.moderne/context/test-mapping.csv`](.moderne/context/test-mapping.csv)");
+        assertThat(read(collection.resolve(".moderne/context/codebase-context.md")))
+          .as("and is no longer described by the umbrella, which keeps what no context claimed")
+          .doesNotContain("test-mapping.csv")
+          .contains("service-endpoints.csv");
+
+        assertThat(read(collection.resolve("CLAUDE.md")))
+          .as("so the agent is pointed at each context, not at one entry covering everything")
+          .contains("| Test Coverage |")
+          .contains("(.moderne/context/test-coverage.md)")
+          .contains("| Codebase Context |");
+
+        assertThat(read(collection.resolve(".moderne/context/contexts.csv")))
+          .contains("Test Coverage,test-coverage.md,Maps tests to implementations");
+        assertThat(read(collection.resolve(".moderne/context/tables.csv")))
+          .contains("test-mapping.csv,org.openrewrite.prethink.table.TestMapping,Test mapping")
+          .contains(",Test Coverage");
+    }
+
+    /**
+     * The catalog is what makes removal exact: a context is this recipe's to
+     * delete because it is listed there, which is what keeps the sweep away from
+     * markdown the other organizational recipes write into the same directory.
+     */
+    @Test
+    void forgetsAContextOnceNoTableBacksIt(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
+        run(dataTables.resolve("with-coverage"), "acme/orders-service",
+          List.of(new PopulateArchitecture("orders-service"), new PopulateTestMapping("OrdersControllerTest"),
+            new ExportContext("Test Coverage", "Maps tests to implementations",
+              "Which tests cover which implementation methods.",
+              List.of("org.openrewrite.prethink.table.TestMapping"))),
+          new UpdateOrganizationalPrethinkContext(collection.toString(), null, null, null, null));
+        assertThat(collection.resolve(".moderne/context/test-coverage.md")).exists();
+
+        // The repository is analyzed again, this time by a composite without the
+        // test-coverage recipes at all.
+        analyze(collection, dataTables.resolve("without-coverage"), "acme/orders-service", "orders-service");
+
+        assertThat(collection.resolve(".moderne/context/test-coverage.md"))
+          .as("a context nothing backs any more is removed with its markdown")
+          .doesNotExist();
+        assertThat(collection.resolve(".moderne/context/contexts.csv"))
+          .as("and with no contexts left to catalog, the catalog goes with them")
+          .doesNotExist();
+        assertThat(collection.resolve(".moderne/context/calm-architecture.md"))
+          .as("markdown another recipe owns is left alone by that sweep")
+          .exists();
+    }
+
     @Test
     void excludesDataTablesOnRequest(@TempDir Path collection, @TempDir Path dataTables) throws IOException {
         run(dataTables, "acme/orders-service",
