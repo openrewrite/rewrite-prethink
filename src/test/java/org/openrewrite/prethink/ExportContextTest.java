@@ -21,12 +21,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.openrewrite.*;
 import org.openrewrite.config.CompositeRecipe;
 import org.openrewrite.internal.InMemoryLargeSourceSet;
+import org.openrewrite.prethink.table.ContextTables;
 import org.openrewrite.prethink.table.TestMapping;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 import org.openrewrite.text.PlainText;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -211,6 +213,64 @@ class ExportContextTest implements RewriteTest {
                 }
             };
         }
+    }
+
+    /**
+     * The grouping of tables into a named context exists only as arguments to
+     * this recipe, where no other recipe in the run can see it. Recording it lets
+     * a recipe that discovers data tables rather than being told about them --
+     * the organizational export -- present them under the same contexts.
+     */
+    @Test
+    void recordsWhichTablesTheContextIsComposedOf(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx).setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateTestMappingA(),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            // ServiceEndpoints is deliberately left unpopulated by any recipe here.
+            List.of("org.openrewrite.prethink.table.TestMapping",
+              "org.openrewrite.prethink.table.ServiceEndpoints")
+          )
+        ));
+
+        composite.run(new InMemoryLargeSourceSet(List.of(
+          PlainText.builder()
+            .sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}")
+            .build()
+        )), ctx, 3, 1);
+
+        assertThat(contextTableRows(ctx))
+          .as("every configured table is recorded, including one this repository has no rows for")
+          .containsExactly(
+            new ContextTables.Row("Test Coverage", "Maps tests to implementations",
+              "Detailed description of test coverage context",
+              ".moderne/context/test-coverage.md",
+              "org.openrewrite.prethink.table.TestMapping"),
+            new ContextTables.Row("Test Coverage", "Maps tests to implementations",
+              "Detailed description of test coverage context",
+              ".moderne/context/test-coverage.md",
+              "org.openrewrite.prethink.table.ServiceEndpoints"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ContextTables.Row> contextTableRows(ExecutionContext ctx) {
+        DataTableStore store = DataTableExecutionContextView.view(ctx).getDataTableStore();
+        List<ContextTables.Row> rows = new ArrayList<>();
+        for (DataTable<?> table : store.getDataTables()) {
+            if (table instanceof ContextTables) {
+                try (Stream<Object> stream = store.getRows(
+                  (Class<? extends DataTable<Object>>) table.getClass(), table.getGroup())) {
+                    stream.forEach(row -> rows.add((ContextTables.Row) row));
+                }
+            }
+        }
+        return rows;
     }
 
     @Test

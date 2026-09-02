@@ -24,18 +24,10 @@ import org.openrewrite.prethink.table.ContextRegistry;
 import org.openrewrite.text.PlainText;
 import org.openrewrite.text.PlainTextVisitor;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static java.util.Collections.emptyList;
-import static java.util.stream.Collectors.joining;
 import static org.openrewrite.PathUtils.separatorsToSystem;
 import static org.openrewrite.PathUtils.separatorsToUnix;
 
@@ -49,13 +41,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
 
     transient ContextRegistry contextRegistry = new ContextRegistry(this);
 
-    private static final String CONTEXT_SECTION_MARKER = "<!-- prethink-context -->";
-    private static final String CONTEXT_TABLE_PLACEHOLDER = "{{CONTEXT_TABLE}}";
-    // Match the full context section including both markers
-    private static final Pattern CONTEXT_SECTION_PATTERN = Pattern.compile(
-            "<!-- prethink-context -->.*?<!-- /prethink-context -->",
-            Pattern.DOTALL
-    );
+    static final String TEMPLATE_RESOURCE = "/org/openrewrite/prethink/prompts/agent-config-section.txt";
 
     private static final List<String> AGENT_CONFIG_FILES = Arrays.asList(
             "AGENTS.md",
@@ -119,7 +105,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                     if (path.startsWith(separatorsToSystem(".moderne/context/")) && path.endsWith(".md")) {
                         if (sf instanceof PlainText) {
                             PlainText pt = (PlainText) sf;
-                            ContextEntry entry = parseContextMarkdown(pt.getText(), path);
+                            ContextEntry entry = AgentConfigSection.parse(pt.getText(), path);
                             if (entry != null) {
                                 acc.getContextEntries().add(entry);
                             }
@@ -135,27 +121,6 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                 return tree;
             }
         };
-    }
-
-    private @Nullable ContextEntry parseContextMarkdown(String content, String filePath) {
-        // Parse the markdown to extract displayName (title) and shortDescription (first subheading)
-        String displayName = null;
-        String shortDescription = null;
-
-        String[] lines = content.split("\n");
-        for (String line : lines) {
-            if (line.startsWith("# ") && displayName == null) {
-                displayName = line.substring(2).trim();
-            } else if (line.startsWith("## ") && displayName != null) {
-                shortDescription = line.substring(3).trim();
-                break;
-            }
-        }
-
-        if (displayName != null && shortDescription != null) {
-            return new ContextEntry(displayName, shortDescription, filePath);
-        }
-        return null;
     }
 
     @Override
@@ -258,66 +223,12 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
                     return text;
                 }
 
-                String content = text.getText();
-                String newSection = generateContextSection(acc.getContextEntries());
-
-                // Check if context section already exists
-                Matcher matcher = CONTEXT_SECTION_PATTERN.matcher(content);
-                if (matcher.find()) {
-                    // Replace existing section
-                    content = matcher.replaceFirst(Matcher.quoteReplacement(newSection));
-                } else {
-                    // Add new section at the end
-                    if (!content.endsWith("\n")) {
-                        content += "\n";
-                    }
-                    content += "\n" + newSection;
-                }
-
-                return text.withText(content);
+                return text.withText(AgentConfigSection.apply(text.getText(), generateContextSection(acc.getContextEntries())));
             }
         };
     }
 
     private String generateContextSection(List<ContextEntry> contextEntries) {
-        String template = this.template != null ? this.template : loadTemplate();
-        List<ContextEntry> sorted = new ArrayList<>(contextEntries);
-        sorted.sort(Comparator.comparing(ContextEntry::getDisplayName));
-        String contextTable = generateContextTable(sorted);
-        // Replace the placeholder with the generated table. If the template omits the placeholder,
-        // append the table at the end so the context is never silently dropped.
-        String content = template.contains(CONTEXT_TABLE_PLACEHOLDER) ?
-                template.replace(CONTEXT_TABLE_PLACEHOLDER, contextTable) :
-                template + "\n\n" + contextTable;
-
-        return CONTEXT_SECTION_MARKER + "\n" + content + "\n<!-- /prethink-context -->";
-    }
-
-    private String generateContextTable(List<ContextEntry> contextEntries) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("| Context | Description | Details |\n");
-        sb.append("|---------|-------------|--------|\n");
-
-        for (ContextEntry entry : contextEntries) {
-            sb.append("| ").append(entry.getDisplayName())
-              .append(" | ").append(entry.getShortDescription())
-              .append(" | [`").append(Paths.get(entry.getContextFile()).getFileName())
-              .append("`](").append(entry.getContextFile()).append(") |\n");
-        }
-
-        return sb.toString().trim();
-    }
-
-    private String loadTemplate() {
-        try (InputStream is = getClass().getResourceAsStream("/org/openrewrite/prethink/prompts/agent-config-section.txt")) {
-            if (is == null) {
-                throw new IllegalStateException("Template file not found: /org/openrewrite/prethink/prompts/agent-config-section.txt");
-            }
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                return reader.lines().collect(joining("\n"));
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to load template file", e);
-        }
+        return AgentConfigSection.render(contextEntries, template, TEMPLATE_RESOURCE);
     }
 }
