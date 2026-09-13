@@ -49,7 +49,7 @@ public class CodingConventions extends DataTable<CodingConventions.Row> {
         String frequency;
 
         @Column(displayName = "Scope",
-                description = "Where this convention applies (project-wide, package, class).")
+                description = "How broadly this convention applies, such as project-wide.")
         @Nullable
         String scope;
     }
