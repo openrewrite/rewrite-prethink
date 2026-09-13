@@ -31,7 +31,7 @@ public class CodingConventions extends DataTable<CodingConventions.Row> {
     @Value
     public static class Row {
         @Column(displayName = "Convention type",
-                description = "The type of convention (naming, comments, imports, formatting).")
+                description = "The family a convention belongs to; naming, imports and control-flow are examples, not the full set.")
         String conventionType;
 
         @Column(displayName = "Pattern",
@@ -39,12 +39,12 @@ public class CodingConventions extends DataTable<CodingConventions.Row> {
         String pattern;
 
         @Column(displayName = "Example",
-                description = "An example from the codebase.")
+                description = "An example from the codebase. A row may leave this unset.")
         @Nullable
         String example;
 
         @Column(displayName = "Frequency",
-                description = "How often this pattern occurs.")
+                description = "How often this pattern occurs. A row may leave this unset, which is not the same as zero.")
         @Nullable
         String frequency;
 
