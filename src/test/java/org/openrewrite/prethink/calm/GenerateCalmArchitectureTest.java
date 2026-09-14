@@ -306,6 +306,87 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         }
     }
 
+    /**
+     * Emits what discovery recipes produce for languages without packages: unqualified class
+     * names for both services and databases.
+     */
+    public static class PopulateUnqualifiedClassNames extends Recipe {
+        transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
+        transient DatabaseConnections databaseConnections = new DatabaseConnections(this);
+
+        @Override
+        public String getDisplayName() {
+            return "Populate unqualified class names";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Populates data tables with unqualified class names for testing.";
+        }
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<Tree, ExecutionContext>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf && sf.getSourcePath().toString().endsWith("app.py")) {
+                        for (String name : List.of("Order", "User")) {
+                            serviceEndpoints.insertRow(ctx, new ServiceEndpoints.Row(
+                              "endpoint:" + name + "Handler#get" + name + "()",
+                              name.toLowerCase() + "_handler.py",
+                              name + "Handler",
+                              "get" + name,
+                              "GET",
+                              "/" + name.toLowerCase() + "s",
+                              null,
+                              null,
+                              "FastAPI",
+                              name + "Handler{name=get" + name + "}"
+                            ));
+                            databaseConnections.insertRow(ctx, new DatabaseConnections.Row(
+                              "repository:" + name + "Store",
+                              name.toLowerCase() + "_store.py",
+                              name,
+                              name,
+                              name + "Store",
+                              "SQLAlchemy",
+                              "SQL"
+                            ));
+                        }
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    @Test
+    void doesNotCorrelateUnqualifiedClassNamesByTheirEmptyPackage() {
+        rewriteRun(
+          spec -> spec
+            .recipes(new PopulateUnqualifiedClassNames(), new GenerateCalmArchitecture())
+            .cycles(3)
+            .expectedCyclesThatMakeChanges(3),
+          text(
+            "def main(): pass",
+            spec -> spec.path("app.py")
+          ),
+          text(
+            null,
+            spec -> spec
+              .path(".moderne/context/calm-architecture.json")
+              .after(content -> {
+                  assertThat(content)
+                    .contains("order-db")
+                    .contains("user-db")
+                    .as("no service groups an unqualified class, so neither database gets wired to one")
+                    .doesNotContain("\"connects\"");
+                  return content;
+              })
+          )
+        );
+    }
+
     @Test
     void connectsDatabaseToServiceViaSiblingPackage() {
         // Controller in com.example.order.controller, Repository in com.example.order.repository

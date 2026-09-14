@@ -732,6 +732,11 @@ public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchite
                 return null;
             }
             String basePackage = getBasePackage(className);
+            if (basePackage.isEmpty()) {
+                // Unqualified names (Go, Ruby, TypeScript) all share the empty package, so it groups
+                // nothing: matching on it would attach every such class to one arbitrary service.
+                return null;
+            }
             return serviceClassToId.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
                     .filter(e -> getBasePackage(e.getKey()).equals(basePackage))
