@@ -26,9 +26,16 @@ import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 import org.openrewrite.text.PlainText;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -145,11 +152,25 @@ class ExportContextTest implements RewriteTest {
         assertThat(exportContext.getContextFilename()).isEqualTo("test-coverage.md");
     }
 
+    @Test
+    void escapedLengthAccountsForCsvQuoting() {
+        // A plain field is written verbatim.
+        assertThat(ExportContext.escapedLength("plain")).isEqualTo(5);
+        // A field containing the delimiter is wrapped in quotes.
+        assertThat(ExportContext.escapedLength("a,b")).isEqualTo("\"a,b\"".length());
+        // A field containing a quote is wrapped and its quote doubled.
+        assertThat(ExportContext.escapedLength("a\"b")).isEqualTo("\"a\"\"b\"".length());
+        // A field containing a newline is wrapped.
+        assertThat(ExportContext.escapedLength("a\nb")).isEqualTo("\"a\nb\"".length());
+        // Null contributes nothing.
+        assertThat(ExportContext.escapedLength(null)).isEqualTo(0);
+    }
+
     /**
      * A fake recipe that populates TestMapping rows from one "recipe".
      */
     @Getter
-    public static class PopulateTestMappingA extends Recipe {
+    private static class PopulateTestMappingA extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
 
         String displayName = "Populate test mapping A";
@@ -183,7 +204,7 @@ class ExportContextTest implements RewriteTest {
      * A second fake recipe that populates its own TestMapping instance with different rows.
      */
     @Getter
-    public static class PopulateTestMappingB extends Recipe {
+    private static class PopulateTestMappingB extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
 
         String displayName = "Populate test mapping B";
@@ -290,7 +311,7 @@ class ExportContextTest implements RewriteTest {
      * (a {@link CsvDataTableStore}) from the in-memory test path.
      */
     @Getter
-    public static class PopulateGroupedTestMapping extends Recipe {
+    private static class PopulateGroupedTestMapping extends Recipe {
         transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
 
         String displayName = "Populate grouped test mapping";
@@ -361,7 +382,7 @@ class ExportContextTest implements RewriteTest {
 
         SourceFile generated = run.getChangeset().getAllResults().stream()
           .map(Result::getAfter)
-          .filter(java.util.Objects::nonNull)
+          .filter(Objects::nonNull)
           .filter(sf -> sf.getSourcePath().equals(Path.of(".moderne/context/test-mapping.csv")))
           .findFirst()
           .orElse(null);
@@ -406,7 +427,7 @@ class ExportContextTest implements RewriteTest {
 
         List<String> remaining = run.getChangeset().getAllResults().stream()
           .map(Result::getAfter)
-          .filter(java.util.Objects::nonNull)
+          .filter(Objects::nonNull)
           .map(sf -> sf.getSourcePath().toString())
           .filter(p -> p.startsWith(".moderne/context"))
           .collect(java.util.stream.Collectors.toList());
@@ -434,7 +455,7 @@ class ExportContextTest implements RewriteTest {
             "Test Coverage",
             "Maps tests to implementations",
             "Detailed description of test coverage context",
-            java.util.Arrays.asList(
+            Arrays.asList(
               "org.openrewrite.prethink.table.TestMapping",
               "org.openrewrite.prethink.table.CodingConventions"
             )
@@ -449,7 +470,7 @@ class ExportContextTest implements RewriteTest {
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
 
-        java.util.Map<Path, SourceFile> generated = new java.util.HashMap<>();
+        Map<Path, SourceFile> generated = new HashMap<>();
         for (Result result : run.getChangeset().getAllResults()) {
             if (result.getAfter() != null) {
                 generated.put(result.getAfter().getSourcePath(), result.getAfter());
@@ -479,7 +500,7 @@ class ExportContextTest implements RewriteTest {
      * JSON and export the architecture CSVs from.
      */
     @Getter
-    public static class PopulateArchitectureTables extends Recipe {
+    private static class PopulateArchitectureTables extends Recipe {
         transient org.openrewrite.prethink.table.ServiceEndpoints serviceEndpoints =
           new org.openrewrite.prethink.table.ServiceEndpoints(this).withGroup("architecture");
         transient org.openrewrite.prethink.table.ProjectMetadata projectMetadata =
@@ -546,7 +567,7 @@ class ExportContextTest implements RewriteTest {
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
 
-        java.util.Map<Path, SourceFile> generated = new java.util.HashMap<>();
+        Map<Path, SourceFile> generated = new HashMap<>();
         for (Result result : run.getChangeset().getAllResults()) {
             if (result.getAfter() != null) {
                 generated.put(result.getAfter().getSourcePath(), result.getAfter());
@@ -693,5 +714,291 @@ class ExportContextTest implements RewriteTest {
           .as("ExportContext must read each referenced table once per cycle (cycles 2 and 3), "
               + "not once per visited context file (which was 2*(F+2) = 6 before memoization)")
           .isEqualTo(2);
+    }
+
+    /**
+     * Populates a grouped TestMapping with many rows, padding one column so each
+     * row alone exceeds a small per-file budget, to drive pagination in tests.
+     */
+    @Getter
+    private static class PopulateManyTestMappings extends Recipe {
+        transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
+
+        private final int rowCount;
+        private final int pad;
+
+        PopulateManyTestMappings(int rowCount, int pad) {
+            this.rowCount = rowCount;
+            this.pad = pad;
+        }
+
+        String displayName = "Populate many test mappings";
+        String description = "Inserts many TestMapping rows for pagination tests.";
+
+        @Override
+        public TreeVisitor<?, ExecutionContext> getVisitor() {
+            return new TreeVisitor<>() {
+                @Override
+                public Tree visit(Tree tree, ExecutionContext ctx) {
+                    if (tree instanceof SourceFile sf &&
+                      sf.getSourcePath().toString().endsWith("FooTest.java")) {
+                        String padding = "x".repeat(pad);
+                        for (int i = 0; i < rowCount; i++) {
+                            testMapping.insertRow(ctx, new TestMapping.Row(
+                              "src/test/java/Foo" + i + "Test.java",
+                              "com.example.Foo" + i + "Test",
+                              "testFoo" + i + "()",
+                              "src/main/java/Foo" + i + ".java",
+                              "com.example.Foo" + i,
+                              "foo" + i + "_" + padding + "()",
+                              null,
+                              null));
+                        }
+                    }
+                    return tree;
+                }
+            };
+        }
+    }
+
+    private static Map<String, SourceFile> generatedByPath(RecipeRun run) {
+        Map<String, SourceFile> generated = new HashMap<>();
+        for (Result result : run.getChangeset().getAllResults()) {
+            if (result.getAfter() != null) {
+                generated.put(result.getAfter().getSourcePath().toString(), result.getAfter());
+            }
+        }
+        return generated;
+    }
+
+    /**
+     * A table larger than the per-file budget is split across a stable primary
+     * file plus numbered overflow files, with every row preserved and no page
+     * oversized, once cycle 1 has enough page slots to provision (here, seeded
+     * from a simulated previous run).
+     */
+    @Test
+    void splitsLargeTableAcrossPagesWhenOverflowProvisioned(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx).setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateManyTestMappings(4, 800),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping"),
+            500L
+          )
+        ));
+
+        // Simulate a previous run that already produced a primary + one overflow
+        // page, so cycle 1 provisions enough slots to hold all rows this run.
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}").build(),
+          PlainText.builder().sourcePath(Path.of(".moderne/context/test-mapping.csv"))
+            .text("Test source path\n").build(),
+          PlainText.builder().sourcePath(Path.of(".moderne/context/test-mapping-002.csv"))
+            .text("Test source path\n").build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+        Map<String, SourceFile> generated = generatedByPath(run);
+
+        List<String> pageFiles = List.of(
+          ".moderne/context/test-mapping.csv",
+          ".moderne/context/test-mapping-002.csv",
+          ".moderne/context/test-mapping-003.csv",
+          ".moderne/context/test-mapping-004.csv");
+        assertThat(generated.keySet())
+          .as("table split across a primary plus three overflow pages")
+          .containsAll(pageFiles);
+        assertThat(generated).doesNotContainKey(".moderne/context/test-mapping-005.csv");
+
+        StringBuilder all = new StringBuilder();
+        for (String pageFile : pageFiles) {
+            String text = generated.get(pageFile).printAll();
+            assertThat(text.length()).as("page stays small: " + pageFile).isLessThan(2500);
+            all.append(text);
+        }
+        for (int i = 0; i < 4; i++) {
+            assertThat(all.toString())
+              .as("every row is preserved across the pages")
+              .contains("com.example.Foo" + i + "Test");
+        }
+
+        SourceFile md = generated.get(".moderne/context/test-coverage.md");
+        assertThat(md).isNotNull();
+        assertThat(md.printAll())
+          .contains("Split across 4 files")
+          .doesNotContain("omitted");
+    }
+
+    /**
+     * The guardrail holds even on the first run of a newly-oversized table, when
+     * no overflow pages exist to provision: the single primary file is bounded
+     * rather than growing without limit, and the markdown flags the omitted rows
+     * so the next run expands into overflow pages.
+     */
+    @Test
+    void capsSingleFileWhenTableExceedsBudgetWithoutProvisionedPages(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx).setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateManyTestMappings(4, 800),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping"),
+            500L
+          )
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}").build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+        Map<String, SourceFile> generated = generatedByPath(run);
+
+        SourceFile primary = generated.get(".moderne/context/test-mapping.csv");
+        assertThat(primary).isNotNull();
+        assertThat(primary.printAll().length())
+          .as("primary file is bounded, not the full oversized table")
+          .isLessThan(2500);
+        assertThat(generated).doesNotContainKey(".moderne/context/test-mapping-002.csv");
+
+        assertThat(generated.get(".moderne/context/test-coverage.md").printAll())
+          .as("markdown notes the omitted rows so the next run expands")
+          .contains("omitted");
+    }
+
+    /**
+     * Setting the budget to zero disables splitting: a single file holds all rows,
+     * for callers that would rather one large file.
+     */
+    @Test
+    void doesNotSplitWhenBudgetIsZero(@TempDir Path dataTablesDir) {
+        ExecutionContext ctx = new InMemoryExecutionContext();
+        DataTableExecutionContextView.view(ctx).setDataTableStore(new CsvDataTableStore(dataTablesDir));
+
+        Recipe composite = new CompositeRecipe(List.of(
+          new PopulateManyTestMappings(4, 800),
+          new ExportContext(
+            "Test Coverage",
+            "Maps tests to implementations",
+            "Detailed description of test coverage context",
+            List.of("org.openrewrite.prethink.table.TestMapping"),
+            0L
+          )
+        ));
+
+        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+          PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
+            .text("package com.example;\npublic class FooTest {}").build()
+        ));
+        RecipeRun run = composite.run(sources, ctx, 3, 1);
+        Map<String, SourceFile> generated = generatedByPath(run);
+
+        SourceFile primary = generated.get(".moderne/context/test-mapping.csv");
+        assertThat(primary).isNotNull();
+        for (int i = 0; i < 4; i++) {
+            assertThat(primary.printAll()).contains("com.example.Foo" + i + "Test");
+        }
+        assertThat(generated).doesNotContainKey(".moderne/context/test-mapping-002.csv");
+        assertThat(generated.get(".moderne/context/test-coverage.md").printAll())
+          .doesNotContain("omitted");
+    }
+
+    /**
+     * End-to-end convergence: running the recipe repeatedly and feeding each run's
+     * generated context back in expands pagination until the whole table fits,
+     * while the guardrail holds (no oversized file) on every run along the way.
+     */
+    @Test
+    void convergesToFullPaginationAcrossRepeatedRuns(@TempDir Path dataTablesDir) throws Exception {
+        int rowCount = 10;
+
+        List<SourceFile> current = new ArrayList<>();
+        current.add(PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
+          .text("package com.example;\npublic class FooTest {}").build());
+
+        boolean firstRunOmitted = false;
+        boolean converged = false;
+        int runs = 0;
+        for (int i = 1; i <= 6 && !converged; i++) {
+            runs = i;
+            // A fresh store each run re-derives the same rows, exactly as a real
+            // `mod run` re-reads the table from the LST; only the generated context
+            // files carry forward between runs.
+            ExecutionContext ctx = new InMemoryExecutionContext();
+            DataTableExecutionContextView.view(ctx)
+              .setDataTableStore(new CsvDataTableStore(Files.createDirectories(dataTablesDir.resolve("run-" + i))));
+
+            Recipe composite = new CompositeRecipe(List.of(
+              new PopulateManyTestMappings(rowCount, 800),
+              new ExportContext(
+                "Test Coverage",
+                "Maps tests to implementations",
+                "Detailed description of test coverage context",
+                List.of("org.openrewrite.prethink.table.TestMapping"),
+                500L
+              )
+            ));
+            RecipeRun run = composite.run(new InMemoryLargeSourceSet(current), ctx, 3, 1);
+
+            // Apply the changeset so created, modified and deleted context files
+            // carry into the next run's source set; unchanged pages are not in the
+            // changeset, so start from the current set rather than the results.
+            Map<String, SourceFile> byPath = new LinkedHashMap<>();
+            for (SourceFile sf : current) {
+                byPath.put(sf.getSourcePath().toString(), sf);
+            }
+            for (Result result : run.getChangeset().getAllResults()) {
+                if (result.getAfter() == null) {
+                    if (result.getBefore() != null) {
+                        byPath.remove(result.getBefore().getSourcePath().toString());
+                    }
+                } else {
+                    byPath.put(result.getAfter().getSourcePath().toString(), result.getAfter());
+                }
+            }
+            current = new ArrayList<>(byPath.values());
+
+            // The guardrail holds on every run: no context file exceeds the budget.
+            for (SourceFile sf : current) {
+                if (sf.getSourcePath().toString().endsWith(".csv")) {
+                    assertThat(sf.printAll().length())
+                      .as("no oversized file on run " + i + ": " + sf.getSourcePath())
+                      .isLessThan(2500);
+                }
+            }
+
+            SourceFile md = byPath.get(".moderne/context/test-coverage.md");
+            boolean omitted = md != null && md.printAll().contains("omitted");
+            if (i == 1) {
+                firstRunOmitted = omitted;
+            }
+            converged = !omitted;
+        }
+
+        assertThat(firstRunOmitted).as("a single run cannot fit the table and omits rows").isTrue();
+        assertThat(converged).as("pagination converges so nothing is omitted").isTrue();
+        assertThat(runs).as("converges within a few runs").isLessThanOrEqualTo(5);
+
+        StringBuilder all = new StringBuilder();
+        for (SourceFile sf : current) {
+            if (sf.getSourcePath().toString().endsWith(".csv")) {
+                all.append(sf.printAll());
+            }
+        }
+        for (int r = 0; r < rowCount; r++) {
+            assertThat(all.toString())
+              .as("every row survives once pagination has converged")
+              .contains("com.example.Foo" + r + "Test");
+        }
     }
 }
