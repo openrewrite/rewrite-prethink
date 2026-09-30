@@ -42,8 +42,7 @@ import java.util.List;
  * data table rows. This recipe expects CALM-related data tables to already be populated and will
  * generate the CALM architecture diagram and update agent configuration files accordingly.
  * <p>
- * For a sample complete solution, refer to io.moderne.prethink.UpdatePrethinkContextStarter or
- * io.moderne.prethink.UpdatePrethinkContextNoAiStarter.
+ * For a sample complete solution, refer to io.moderne.prethink.UpdatePrethinkContextStarter.
  */
 @EqualsAndHashCode(callSuper = false)
 @Value
