@@ -20,11 +20,8 @@ import org.openrewrite.DocumentExample;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 
-import java.util.Arrays;
 import java.util.List;
 
-import static java.util.Collections.singletonList;
-import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openrewrite.test.SourceSpecs.text;
 
@@ -90,7 +87,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void addsContextSectionToCopilotInstructions() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(singletonList(".github/copilot-instructions.md"), null)),
+          spec -> spec.recipe(new UpdateAgentConfig(List.of(".github/copilot-instructions.md"), null)),
           // Context markdown file (scanner needs to find it to extract metadata)
           text(
             //language=Markdown
@@ -246,7 +243,7 @@ class UpdateAgentConfigTest implements RewriteTest {
         rewriteRun(
           spec -> spec.expectedCyclesThatMakeChanges(1)
             .afterRecipe(run -> {
-                boolean hasClaudeMd = run.getChangeset().getAllResults().stream()
+                var hasClaudeMd = run.getChangeset().getAllResults().stream()
                   .anyMatch(r -> r.getAfter() != null &&
                     "CLAUDE.md".equals(r.getAfter().getSourcePath().toString()));
                 assertThat(hasClaudeMd).isTrue();
@@ -269,13 +266,13 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void createsAllTargetConfigFilesWhenNoneExist() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null))
+          spec -> spec.recipe(new UpdateAgentConfig(List.of("CLAUDE.md", "AGENTS.md"), null))
             .expectedCyclesThatMakeChanges(1)
             .afterRecipe(run -> {
                 List<String> created = run.getChangeset().getAllResults().stream()
                   .filter(r -> r.getBefore() == null && r.getAfter() != null)
                   .map(r -> r.getAfter().getSourcePath().toString())
-                  .collect(toList());
+                  .toList();
                 assertThat(created).containsExactlyInAnyOrder("CLAUDE.md", "AGENTS.md");
             }),
           // Only context markdown file exists, no config files
@@ -296,13 +293,13 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void blankTargetFallsBackToDefaultBehavior() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(singletonList(""), null))
+          spec -> spec.recipe(new UpdateAgentConfig(List.of(""), null))
             .expectedCyclesThatMakeChanges(1)
             .afterRecipe(run -> {
                 List<String> created = run.getChangeset().getAllResults().stream()
                   .filter(r -> r.getBefore() == null && r.getAfter() != null)
                   .map(r -> r.getAfter().getSourcePath().toString())
-                  .collect(toList());
+                  .toList();
                 assertThat(created).containsExactly("CLAUDE.md");
             }),
           text(
@@ -322,13 +319,13 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void skipsBlankTargetsAmongValidOnes() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "", "  ", "AGENTS.md"), null))
+          spec -> spec.recipe(new UpdateAgentConfig(List.of("CLAUDE.md", "", "  ", "AGENTS.md"), null))
             .expectedCyclesThatMakeChanges(1)
             .afterRecipe(run -> {
                 List<String> created = run.getChangeset().getAllResults().stream()
                   .filter(r -> r.getBefore() == null && r.getAfter() != null)
                   .map(r -> r.getAfter().getSourcePath().toString())
-                  .collect(toList());
+                  .toList();
                 assertThat(created).containsExactlyInAnyOrder("CLAUDE.md", "AGENTS.md");
             }),
           text(
@@ -348,13 +345,13 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void createsMissingAndUpdatesExistingTargets() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null))
+          spec -> spec.recipe(new UpdateAgentConfig(List.of("CLAUDE.md", "AGENTS.md"), null))
             .expectedCyclesThatMakeChanges(1)
             .afterRecipe(run -> {
                 List<String> created = run.getChangeset().getAllResults().stream()
                   .filter(r -> r.getBefore() == null && r.getAfter() != null)
                   .map(r -> r.getAfter().getSourcePath().toString())
-                  .collect(toList());
+                  .toList();
                 assertThat(created).containsExactly("AGENTS.md");
             }),
           text(
@@ -389,7 +386,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void updatesAllTargetsButNotOtherConfigFiles() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(Arrays.asList("CLAUDE.md", "AGENTS.md"), null)),
+          spec -> spec.recipe(new UpdateAgentConfig(List.of("CLAUDE.md", "AGENTS.md"), null)),
           text(
             //language=Markdown
             """
@@ -442,7 +439,7 @@ class UpdateAgentConfigTest implements RewriteTest {
     @Test
     void updatesCustomTargetConfigFile() {
         rewriteRun(
-          spec -> spec.recipe(new UpdateAgentConfig(singletonList(".windsurfrules"), null)),
+          spec -> spec.recipe(new UpdateAgentConfig(List.of(".windsurfrules"), null)),
           text(
             //language=Markdown
             """

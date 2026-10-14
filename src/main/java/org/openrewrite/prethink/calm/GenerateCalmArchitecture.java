@@ -24,17 +24,8 @@ import lombok.Value;
 import org.jspecify.annotations.Nullable;
 import org.openrewrite.*;
 import org.openrewrite.internal.StringUtils;
-import org.openrewrite.prethink.table.CalmRelationships;
-import org.openrewrite.prethink.table.ClassDescriptions;
-import org.openrewrite.prethink.table.DataAssets;
-import org.openrewrite.prethink.table.DatabaseConnections;
-import org.openrewrite.prethink.table.ExternalServiceCalls;
-import org.openrewrite.prethink.table.MessagingConnections;
-import org.openrewrite.prethink.table.ProjectMetadata;
-import org.openrewrite.prethink.table.SecurityConfiguration;
-import org.openrewrite.prethink.table.ServerConfiguration;
-import org.openrewrite.prethink.table.ServiceComponents;
-import org.openrewrite.prethink.table.ServiceEndpoints;
+import org.openrewrite.prethink.Prethink;
+import org.openrewrite.prethink.table.*;
 import org.openrewrite.text.PlainText;
 
 import java.nio.file.Path;
@@ -42,8 +33,6 @@ import java.util.*;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
-import org.openrewrite.prethink.Prethink;
-
 import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 
 /**

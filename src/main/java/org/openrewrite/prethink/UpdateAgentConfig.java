@@ -19,6 +19,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Value;
 import org.jspecify.annotations.Nullable;
 import org.openrewrite.*;
+import org.openrewrite.internal.StringUtils;
 import org.openrewrite.marker.Markers;
 import org.openrewrite.prethink.table.ContextRegistry;
 import org.openrewrite.text.PlainText;
@@ -202,7 +203,7 @@ public class UpdateAgentConfig extends ScanningRecipe<UpdateAgentConfig.Accumula
         }
         List<String> targets = new ArrayList<>(targetConfigFiles.size());
         for (String target : targetConfigFiles) {
-            if (target != null && !target.trim().isEmpty()) {
+            if (!StringUtils.isBlank(target)) {
                 targets.add(target.trim());
             }
         }

@@ -303,20 +303,20 @@ class UpdateGitignoreTest implements RewriteTest {
     @Test
     void updateGitignoreContentUnit() {
         // Test the static method directly
-        String input = "build/\n.moderne/\n.idea/\n";
-        String expected = "build/\n.moderne/*\n!.moderne/context/\n.idea/\n";
+        var input = "build/\n.moderne/\n.idea/\n";
+        var expected = "build/\n.moderne/*\n!.moderne/context/\n.idea/\n";
         assertThat(UpdateGitignore.updateGitignoreContent(input)).isEqualTo(expected);
     }
 
     @Test
     void updateGitignoreContentAlreadyCorrect() {
-        String input = "build/\n.moderne/*\n!.moderne/context/\n";
+        var input = "build/\n.moderne/*\n!.moderne/context/\n";
         assertThat(UpdateGitignore.updateGitignoreContent(input)).isEqualTo(input);
     }
 
     @Test
     void updateGitignoreContentNoModerne() {
-        String input = "build/\n.idea/\n";
+        var input = "build/\n.idea/\n";
         String result = UpdateGitignore.updateGitignoreContent(input);
         assertThat(result)
           .contains(".moderne/*")
@@ -326,7 +326,7 @@ class UpdateGitignoreTest implements RewriteTest {
 
     @Test
     void updateGitignoreContentModerneWithoutSlash() {
-        String input = "# Moderne\n.moderne\n";
+        var input = "# Moderne\n.moderne\n";
         String result = UpdateGitignore.updateGitignoreContent(input);
         assertThat(result).isEqualTo("# Moderne\n.moderne/*\n!.moderne/context/\n");
     }

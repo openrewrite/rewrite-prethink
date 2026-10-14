@@ -15,6 +15,7 @@
  */
 package org.openrewrite.prethink.calm;
 
+import lombok.Getter;
 import org.junit.jupiter.api.Test;
 import org.openrewrite.*;
 import org.openrewrite.internal.InMemoryLargeSourceSet;
@@ -23,6 +24,7 @@ import org.openrewrite.prethink.table.ServiceEndpoints;
 import org.openrewrite.test.RewriteTest;
 import org.openrewrite.text.PlainText;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,21 +32,15 @@ import static org.openrewrite.test.SourceSpecs.text;
 
 class GenerateCalmArchitectureTest implements RewriteTest {
 
-    /**
-     * A fake recipe that just populates the ServiceEndpoints data table.
-     */
+    /// A fake recipe that just populates the ServiceEndpoints data table.
     public static class PopulateServiceEndpoints extends Recipe {
         transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
 
-        @Override
-        public String getDisplayName() {
-            return "Populate service endpoints";
-        }
+        @Getter
+        final String displayName = "Populate service endpoints";
 
-        @Override
-        public String getDescription() {
-            return "Populates ServiceEndpoints data table for testing.";
-        }
+        @Getter
+        final String description = "Populates ServiceEndpoints data table for testing.";
 
         @Override
         public TreeVisitor<?, ExecutionContext> getVisitor() {
@@ -167,13 +163,13 @@ class GenerateCalmArchitectureTest implements RewriteTest {
 
         SourceFile controller = PlainText.builder()
           .text("package com.example;\npublic class GreetingController {}")
-          .sourcePath(java.nio.file.Paths.get("src/main/java/com/example/GreetingController.java"))
+          .sourcePath(Path.of("src/main/java/com/example/GreetingController.java"))
           .build();
         SourceFile staleCalm = PlainText.builder()
           .text("{\"stale\": true}")
-          .sourcePath(java.nio.file.Paths.get(".moderne/context/calm-architecture.json"))
+          .sourcePath(Path.of(".moderne/context/calm-architecture.json"))
           .build();
-        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(controller, staleCalm));
+        var lss = new InMemoryLargeSourceSet(List.of(controller, staleCalm));
 
         // Match production: maxCycles=3, minCycles=1.
         RecipeRun run = pipeline.run(lss, new InMemoryExecutionContext(), 3, 1);
@@ -223,21 +219,15 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         );
     }
 
-    /**
-     * A fake recipe that populates DatabaseConnections data table.
-     */
+    /// A fake recipe that populates DatabaseConnections data table.
     public static class PopulateDatabaseConnections extends Recipe {
         transient DatabaseConnections databaseConnections = new DatabaseConnections(this);
 
-        @Override
-        public String getDisplayName() {
-            return "Populate database connections";
-        }
+        @Getter
+        final String displayName = "Populate database connections";
 
-        @Override
-        public String getDescription() {
-            return "Populates DatabaseConnections data table for testing.";
-        }
+        @Getter
+        final String description = "Populates DatabaseConnections data table for testing.";
 
         @Override
         public TreeVisitor<?, ExecutionContext> getVisitor() {
@@ -263,21 +253,15 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         }
     }
 
-    /**
-     * A variant of PopulateServiceEndpoints that uses sibling packages.
-     */
+    /// A variant of PopulateServiceEndpoints that uses sibling packages.
     public static class PopulateServiceEndpointsInControllerPackage extends Recipe {
         transient ServiceEndpoints serviceEndpoints = new ServiceEndpoints(this);
 
-        @Override
-        public String getDisplayName() {
-            return "Populate service endpoints in controller package";
-        }
+        @Getter
+        final String displayName = "Populate service endpoints in controller package";
 
-        @Override
-        public String getDescription() {
-            return "Populates ServiceEndpoints in a controller sub-package for sibling package testing.";
-        }
+        @Getter
+        final String description = "Populates ServiceEndpoints in a controller sub-package for sibling package testing.";
 
         @Override
         public TreeVisitor<?, ExecutionContext> getVisitor() {
@@ -332,15 +316,14 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             spec -> spec
               .path(".moderne/context/calm-architecture.json")
               .after(content -> {
-                  org.assertj.core.api.Assertions.assertThat(content)
-                    // Service node exists
-                    .contains("order-controller")
-                    // Database node exists
-                    .contains("order-db")
-                    // Connects relationship was created via sibling package matching
-                    .contains("order-controller-to-order-db")
-                    .contains("\"connects\"");
-                  return content;
+                  return assertThat(content)
+                  // Service node exists
+                  .contains("order-controller")
+                  // Database node exists
+                  .contains("order-db")
+                  // Connects relationship was created via sibling package matching
+                  .contains("order-controller-to-order-db")
+                  .contains("\"connects\"").actual();
               })
           )
         );

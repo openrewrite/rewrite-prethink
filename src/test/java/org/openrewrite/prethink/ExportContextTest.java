@@ -28,14 +28,7 @@ import org.openrewrite.text.PlainText;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -92,7 +85,7 @@ class ExportContextTest implements RewriteTest {
     @Test
     void tableToFilenameConversion() {
         // Test the table name to filename conversion logic
-        ExportContext exportContext = new ExportContext(
+        var exportContext = new ExportContext(
           "Test Context",
           "Short description",
           "Long description",
@@ -117,7 +110,7 @@ class ExportContextTest implements RewriteTest {
 
     @Test
     void toKebabCaseConversion() {
-        ExportContext exportContext = new ExportContext(
+        var exportContext = new ExportContext(
           "Test Context",
           "Short description",
           "Long description",
@@ -142,7 +135,7 @@ class ExportContextTest implements RewriteTest {
 
     @Test
     void getContextFilename() {
-        ExportContext exportContext = new ExportContext(
+        var exportContext = new ExportContext(
           "Test Coverage",
           "Short description",
           "Long description",
@@ -163,12 +156,10 @@ class ExportContextTest implements RewriteTest {
         // A field containing a newline is wrapped.
         assertThat(ExportContext.escapedLength("a\nb")).isEqualTo("\"a\nb\"".length());
         // Null contributes nothing.
-        assertThat(ExportContext.escapedLength(null)).isEqualTo(0);
+        assertThat(ExportContext.escapedLength(null)).isZero();
     }
 
-    /**
-     * A fake recipe that populates TestMapping rows from one "recipe".
-     */
+    /// A fake recipe that populates TestMapping rows from one "recipe".
     @Getter
     private static class PopulateTestMappingA extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
@@ -200,9 +191,7 @@ class ExportContextTest implements RewriteTest {
         }
     }
 
-    /**
-     * A second fake recipe that populates its own TestMapping instance with different rows.
-     */
+    /// A second fake recipe that populates its own TestMapping instance with different rows.
     @Getter
     private static class PopulateTestMappingB extends Recipe {
         transient TestMapping testMapping = new TestMapping(this);
@@ -281,9 +270,9 @@ class ExportContextTest implements RewriteTest {
 
         SourceFile fooTest = PlainText.builder()
           .text("package com.example;\npublic class FooTest {}")
-          .sourcePath(java.nio.file.Paths.get("src/test/java/FooTest.java"))
+          .sourcePath(Path.of("src/test/java/FooTest.java"))
           .build();
-        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(fooTest));
+        var lss = new InMemoryLargeSourceSet(List.of(fooTest));
 
         // Match production: maxCycles=3, minCycles=1.
         RecipeRun run = pipeline.run(lss, new InMemoryExecutionContext(), 3, 1);
@@ -291,7 +280,7 @@ class ExportContextTest implements RewriteTest {
         List<String> generatedPaths = run.getChangeset().getAllResults().stream()
           .filter(r -> r.getAfter() != null)
           .map(r -> r.getAfter().getSourcePath().toString())
-          .collect(java.util.stream.Collectors.toList());
+          .toList();
 
         assertThat(generatedPaths)
           .as("generate() must produce context files even when no other recipe makes a tree-modifying change in cycle 1")
@@ -303,13 +292,11 @@ class ExportContextTest implements RewriteTest {
         assertThat(((PlainText) csv).getText()).contains("com.example.FooTest").contains("testFoo()");
     }
 
-    /**
-     * Mirrors the production discovery recipes (e.g. FindProjectMetadata,
-     * FindServiceEndpoints) that put their data table into a shared community
-     * {@code group}. The group changes the {@link DataTableStore} bucket key,
-     * which is the dimension that distinguishes the failing production path
-     * (a {@link CsvDataTableStore}) from the in-memory test path.
-     */
+    /// Mirrors the production discovery recipes (e.g. FindProjectMetadata,
+    /// FindServiceEndpoints) that put their data table into a shared community
+    /// `group`. The group changes the [DataTableStore] bucket key,
+    /// which is the dimension that distinguishes the failing production path
+    /// (a [CsvDataTableStore]) from the in-memory test path.
     @Getter
     private static class PopulateGroupedTestMapping extends Recipe {
         transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
@@ -341,20 +328,18 @@ class ExportContextTest implements RewriteTest {
         }
     }
 
-    /**
-     * Reproduces the production failure: a composite where a data table is
-     * populated in cycle 1 and {@link ExportContext} must export it, run against
-     * a {@link CsvDataTableStore} (the Moderne CLI's {@code mod run} store) with
-     * the CLI's cycle semantics ({@code maxCycles=3, minCycles=1}).
-     * <p>
-     * The default RewriteTest harness hides this bug because it inflates
-     * {@code minCycles} to {@code expectedCyclesThatMakeChanges + 1}, forcing a
-     * second cycle the production run never gets unless a recipe makes a file
-     * change in cycle 1. There is deliberately <em>no</em> external cycle trigger
-     * here: with the fix, {@link ExportContext} generates a placeholder in cycle 1
-     * (a real change), which both triggers cycle 2 and gives it a file to fill —
-     * the only file-producing pattern the V3 edit overlay carries through.
-     */
+    /// Reproduces the production failure: a composite where a data table is
+    /// populated in cycle 1 and [ExportContext] must export it, run against
+    /// a [CsvDataTableStore] (the Moderne CLI's `mod run` store) with
+    /// the CLI's cycle semantics (`maxCycles=3, minCycles=1`).
+    ///
+    /// The default RewriteTest harness hides this bug because it inflates
+    /// `minCycles` to `expectedCyclesThatMakeChanges + 1`, forcing a
+    /// second cycle the production run never gets unless a recipe makes a file
+    /// change in cycle 1. There is deliberately _no_ external cycle trigger
+    /// here: with the fix, [ExportContext] generates a placeholder in cycle 1
+    /// (a real change), which both triggers cycle 2 and gives it a file to fill —
+    /// the only file-producing pattern the V3 edit overlay carries through.
     @Test
     void exportsFromCsvDataTableStoreWithProductionCycleSemantics(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -372,7 +357,7 @@ class ExportContextTest implements RewriteTest {
         ));
 
         // Drive the run exactly as the Moderne CLI does: maxCycles=3, minCycles=1.
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder()
             .sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}")
@@ -395,12 +380,10 @@ class ExportContextTest implements RewriteTest {
           .contains("testFoo()");
     }
 
-    /**
-     * When a configured data table produces no rows, the cycle-1 placeholder CSV
-     * (and the markdown) must be removed in cycle 2 rather than left behind as a
-     * headers-only file, mirroring GenerateCalmArchitecture's deletion of its
-     * placeholder when there is no data.
-     */
+    /// When a configured data table produces no rows, the cycle-1 placeholder CSV
+    /// (and the markdown) must be removed in cycle 2 rather than left behind as a
+    /// headers-only file, mirroring GenerateCalmArchitecture's deletion of its
+    /// placeholder when there is no data.
     @Test
     void emptyTableLeavesNoCsvOrMarkdown(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -417,7 +400,7 @@ class ExportContextTest implements RewriteTest {
           )
         ));
 
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder()
             .sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}")
@@ -430,18 +413,16 @@ class ExportContextTest implements RewriteTest {
           .filter(Objects::nonNull)
           .map(sf -> sf.getSourcePath().toString())
           .filter(p -> p.startsWith(".moderne/context"))
-          .collect(java.util.stream.Collectors.toList());
+          .toList();
 
         assertThat(remaining)
           .as("an empty data table must not leave behind a headers-only CSV or markdown")
           .isEmpty();
     }
 
-    /**
-     * In an ExportContext bundling multiple tables, only the tables that produced
-     * rows are exported: the empty table's placeholder CSV is removed and the
-     * markdown documents only the populated table.
-     */
+    /// In an ExportContext bundling multiple tables, only the tables that produced
+    /// rows are exported: the empty table's placeholder CSV is removed and the
+    /// markdown documents only the populated table.
     @Test
     void onlyExportsTablesWithRows(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -455,14 +436,14 @@ class ExportContextTest implements RewriteTest {
             "Test Coverage",
             "Maps tests to implementations",
             "Detailed description of test coverage context",
-            Arrays.asList(
+            List.of(
               "org.openrewrite.prethink.table.TestMapping",
               "org.openrewrite.prethink.table.CodingConventions"
             )
           )
         ));
 
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder()
             .sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}")
@@ -470,7 +451,7 @@ class ExportContextTest implements RewriteTest {
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
 
-        Map<Path, SourceFile> generated = new HashMap<>();
+        var generated = new HashMap<Path, SourceFile>();
         for (Result result : run.getChangeset().getAllResults()) {
             if (result.getAfter() != null) {
                 generated.put(result.getAfter().getSourcePath(), result.getAfter());
@@ -493,12 +474,10 @@ class ExportContextTest implements RewriteTest {
           .doesNotContain("coding-conventions.csv");
     }
 
-    /**
-     * Populates the CALM-architecture data tables (grouped {@code "architecture"})
-     * the same way the production discovery recipes do, so that the real
-     * {@link UpdatePrethinkContext} composite has data to both generate the CALM
-     * JSON and export the architecture CSVs from.
-     */
+    /// Populates the CALM-architecture data tables (grouped `"architecture"`)
+    /// the same way the production discovery recipes do, so that the real
+    /// [UpdatePrethinkContext] composite has data to both generate the CALM
+    /// JSON and export the architecture CSVs from.
     @Getter
     private static class PopulateArchitectureTables extends Recipe {
         transient org.openrewrite.prethink.table.ServiceEndpoints serviceEndpoints =
@@ -536,18 +515,16 @@ class ExportContextTest implements RewriteTest {
         }
     }
 
-    /**
-     * The end-to-end reproduction of the production bug: running the real
-     * {@link UpdatePrethinkContext} composite (which both generates the CALM
-     * JSON via {@code GenerateCalmArchitecture} and exports architecture CSVs via
-     * {@link ExportContext}) against a {@link CsvDataTableStore} with the Moderne
-     * CLI's cycle semantics ({@code maxCycles=3, minCycles=1}).
-     * <p>
-     * Before the fix, only {@code calm-architecture.json} was generated; the
-     * architecture CSVs (e.g. {@code service-endpoints.csv}) were silently
-     * dropped because {@link ExportContext} generated them one cycle later than
-     * {@code GenerateCalmArchitecture}.
-     */
+    /// The end-to-end reproduction of the production bug: running the real
+    /// [UpdatePrethinkContext] composite (which both generates the CALM
+    /// JSON via `GenerateCalmArchitecture` and exports architecture CSVs via
+    /// [ExportContext]) against a [CsvDataTableStore] with the Moderne
+    /// CLI's cycle semantics (`maxCycles=3, minCycles=1`).
+    ///
+    /// Before the fix, only `calm-architecture.json` was generated; the
+    /// architecture CSVs (e.g. `service-endpoints.csv`) were silently
+    /// dropped because [ExportContext] generated them one cycle later than
+    /// `GenerateCalmArchitecture`.
     @Test
     void realCompositeExportsArchitectureCsvAlongsideCalmJson(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -559,7 +536,7 @@ class ExportContextTest implements RewriteTest {
           new UpdatePrethinkContext(null, null)
         ));
 
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder()
             .sourcePath(Path.of("src/main/java/com/example/UserController.java"))
             .text("package com.example;\npublic class UserController {}")
@@ -567,7 +544,7 @@ class ExportContextTest implements RewriteTest {
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
 
-        Map<Path, SourceFile> generated = new HashMap<>();
+        var generated = new HashMap<Path, SourceFile>();
         for (Result result : run.getChangeset().getAllResults()) {
             if (result.getAfter() != null) {
                 generated.put(result.getAfter().getSourcePath(), result.getAfter());
@@ -618,12 +595,11 @@ class ExportContextTest implements RewriteTest {
             spec -> spec
               .path(".moderne/context/test-mapping.csv")
               .after(csv -> {
-                  assertThat(csv)
-                    .contains("com.example.FooTest")
-                    .contains("testFoo()")
-                    .contains("com.example.BarTest")
-                    .contains("testBar()");
-                  return csv;
+                  return assertThat(csv)
+                  .contains("com.example.FooTest")
+                  .contains("testFoo()")
+                  .contains("com.example.BarTest")
+                  .contains("testBar()").actual();
               })
           ),
           // Expect the markdown description file
@@ -632,11 +608,10 @@ class ExportContextTest implements RewriteTest {
             spec -> spec
               .path(".moderne/context/test-coverage.md")
               .after(md -> {
-                  assertThat(md)
-                    .contains("# Test Coverage")
-                    .contains("Maps tests to implementations")
-                    .contains("test-mapping.csv");
-                  return md;
+                  return assertThat(md)
+                  .contains("# Test Coverage")
+                  .contains("Maps tests to implementations")
+                  .contains("test-mapping.csv").actual();
               })
           )
         );
@@ -652,7 +627,7 @@ class ExportContextTest implements RewriteTest {
         // accumulator is per-cycle (stored on the per-cycle root cursor), so the export
         // runs in cycle 2 and the forced cycle 3 -> exactly 2 reads of the one
         // referenced table, independent of how many context files are visited.
-        AtomicInteger getRowsCalls = new AtomicInteger();
+        var getRowsCalls = new AtomicInteger();
         DataTableStore countingStore = new DataTableStore() {
             final InMemoryDataTableStore delegate = new InMemoryDataTableStore();
 
@@ -700,9 +675,9 @@ class ExportContextTest implements RewriteTest {
 
         SourceFile fooTest = PlainText.builder()
           .text("package com.example;\npublic class FooTest {}")
-          .sourcePath(java.nio.file.Paths.get("src/test/java/FooTest.java"))
+          .sourcePath(Path.of("src/test/java/FooTest.java"))
           .build();
-        InMemoryLargeSourceSet lss = new InMemoryLargeSourceSet(List.of(fooTest));
+        var lss = new InMemoryLargeSourceSet(List.of(fooTest));
 
         ExecutionContext ctx = new InMemoryExecutionContext();
         DataTableExecutionContextView.view(ctx).setDataTableStore(countingStore);
@@ -711,15 +686,13 @@ class ExportContextTest implements RewriteTest {
         pipeline.run(lss, ctx, 3, 1);
 
         assertThat(getRowsCalls.get())
-          .as("ExportContext must read each referenced table once per cycle (cycles 2 and 3), "
-              + "not once per visited context file (which was 2*(F+2) = 6 before memoization)")
+          .as("ExportContext must read each referenced table once per cycle (cycles 2 and 3), " +
+              "not once per visited context file (which was 2*(F+2) = 6 before memoization)")
           .isEqualTo(2);
     }
 
-    /**
-     * Populates a grouped TestMapping with many rows, padding one column so each
-     * row alone exceeds a small per-file budget, to drive pagination in tests.
-     */
+    /// Populates a grouped TestMapping with many rows, padding one column so each
+    /// row alone exceeds a small per-file budget, to drive pagination in tests.
     @Getter
     private static class PopulateManyTestMappings extends Recipe {
         transient TestMapping testMapping = new TestMapping(this).withGroup("architecture");
@@ -743,7 +716,7 @@ class ExportContextTest implements RewriteTest {
                     if (tree instanceof SourceFile sf &&
                       sf.getSourcePath().toString().endsWith("FooTest.java")) {
                         String padding = "x".repeat(pad);
-                        for (int i = 0; i < rowCount; i++) {
+                        for (var i = 0; i < rowCount; i++) {
                             testMapping.insertRow(ctx, new TestMapping.Row(
                               "src/test/java/Foo" + i + "Test.java",
                               "com.example.Foo" + i + "Test",
@@ -762,7 +735,7 @@ class ExportContextTest implements RewriteTest {
     }
 
     private static Map<String, SourceFile> generatedByPath(RecipeRun run) {
-        Map<String, SourceFile> generated = new HashMap<>();
+        var generated = new HashMap<String, SourceFile>();
         for (Result result : run.getChangeset().getAllResults()) {
             if (result.getAfter() != null) {
                 generated.put(result.getAfter().getSourcePath().toString(), result.getAfter());
@@ -771,12 +744,10 @@ class ExportContextTest implements RewriteTest {
         return generated;
     }
 
-    /**
-     * A table larger than the per-file budget is split across a stable primary
-     * file plus numbered overflow files, with every row preserved and no page
-     * oversized, once cycle 1 has enough page slots to provision (here, seeded
-     * from a simulated previous run).
-     */
+    /// A table larger than the per-file budget is split across a stable primary
+    /// file plus numbered overflow files, with every row preserved and no page
+    /// oversized, once cycle 1 has enough page slots to provision (here, seeded
+    /// from a simulated previous run).
     @Test
     void splitsLargeTableAcrossPagesWhenOverflowProvisioned(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -795,7 +766,7 @@ class ExportContextTest implements RewriteTest {
 
         // Simulate a previous run that already produced a primary + one overflow
         // page, so cycle 1 provisions enough slots to hold all rows this run.
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}").build(),
           PlainText.builder().sourcePath(Path.of(".moderne/context/test-mapping.csv"))
@@ -804,9 +775,9 @@ class ExportContextTest implements RewriteTest {
             .text("Test source path\n").build()
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
-        Map<String, SourceFile> generated = generatedByPath(run);
+        var generated = generatedByPath(run);
 
-        List<String> pageFiles = List.of(
+        var pageFiles = List.of(
           ".moderne/context/test-mapping.csv",
           ".moderne/context/test-mapping-002.csv",
           ".moderne/context/test-mapping-003.csv",
@@ -816,13 +787,13 @@ class ExportContextTest implements RewriteTest {
           .containsAll(pageFiles);
         assertThat(generated).doesNotContainKey(".moderne/context/test-mapping-005.csv");
 
-        StringBuilder all = new StringBuilder();
+        var all = new StringBuilder();
         for (String pageFile : pageFiles) {
             String text = generated.get(pageFile).printAll();
             assertThat(text.length()).as("page stays small: " + pageFile).isLessThan(2500);
             all.append(text);
         }
-        for (int i = 0; i < 4; i++) {
+        for (var i = 0; i < 4; i++) {
             assertThat(all.toString())
               .as("every row is preserved across the pages")
               .contains("com.example.Foo" + i + "Test");
@@ -835,12 +806,10 @@ class ExportContextTest implements RewriteTest {
           .doesNotContain("omitted");
     }
 
-    /**
-     * The guardrail holds even on the first run of a newly-oversized table, when
-     * no overflow pages exist to provision: the single primary file is bounded
-     * rather than growing without limit, and the markdown flags the omitted rows
-     * so the next run expands into overflow pages.
-     */
+    /// The guardrail holds even on the first run of a newly-oversized table, when
+    /// no overflow pages exist to provision: the single primary file is bounded
+    /// rather than growing without limit, and the markdown flags the omitted rows
+    /// so the next run expands into overflow pages.
     @Test
     void capsSingleFileWhenTableExceedsBudgetWithoutProvisionedPages(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -857,12 +826,12 @@ class ExportContextTest implements RewriteTest {
           )
         ));
 
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}").build()
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
-        Map<String, SourceFile> generated = generatedByPath(run);
+        var generated = generatedByPath(run);
 
         SourceFile primary = generated.get(".moderne/context/test-mapping.csv");
         assertThat(primary).isNotNull();
@@ -876,10 +845,8 @@ class ExportContextTest implements RewriteTest {
           .contains("omitted");
     }
 
-    /**
-     * Setting the budget to zero disables splitting: a single file holds all rows,
-     * for callers that would rather one large file.
-     */
+    /// Setting the budget to zero disables splitting: a single file holds all rows,
+    /// for callers that would rather one large file.
     @Test
     void doesNotSplitWhenBudgetIsZero(@TempDir Path dataTablesDir) {
         ExecutionContext ctx = new InMemoryExecutionContext();
@@ -896,16 +863,16 @@ class ExportContextTest implements RewriteTest {
           )
         ));
 
-        InMemoryLargeSourceSet sources = new InMemoryLargeSourceSet(List.of(
+        var sources = new InMemoryLargeSourceSet(List.of(
           PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
             .text("package com.example;\npublic class FooTest {}").build()
         ));
         RecipeRun run = composite.run(sources, ctx, 3, 1);
-        Map<String, SourceFile> generated = generatedByPath(run);
+        var generated = generatedByPath(run);
 
         SourceFile primary = generated.get(".moderne/context/test-mapping.csv");
         assertThat(primary).isNotNull();
-        for (int i = 0; i < 4; i++) {
+        for (var i = 0; i < 4; i++) {
             assertThat(primary.printAll()).contains("com.example.Foo" + i + "Test");
         }
         assertThat(generated).doesNotContainKey(".moderne/context/test-mapping-002.csv");
@@ -913,23 +880,21 @@ class ExportContextTest implements RewriteTest {
           .doesNotContain("omitted");
     }
 
-    /**
-     * End-to-end convergence: running the recipe repeatedly and feeding each run's
-     * generated context back in expands pagination until the whole table fits,
-     * while the guardrail holds (no oversized file) on every run along the way.
-     */
+    /// End-to-end convergence: running the recipe repeatedly and feeding each run's
+    /// generated context back in expands pagination until the whole table fits,
+    /// while the guardrail holds (no oversized file) on every run along the way.
     @Test
     void convergesToFullPaginationAcrossRepeatedRuns(@TempDir Path dataTablesDir) throws Exception {
-        int rowCount = 10;
+        var rowCount = 10;
 
         List<SourceFile> current = new ArrayList<>();
         current.add(PlainText.builder().sourcePath(Path.of("src/test/java/FooTest.java"))
           .text("package com.example;\npublic class FooTest {}").build());
 
-        boolean firstRunOmitted = false;
-        boolean converged = false;
-        int runs = 0;
-        for (int i = 1; i <= 6 && !converged; i++) {
+        var firstRunOmitted = false;
+        var converged = false;
+        var runs = 0;
+        for (var i = 1; i <= 6 && !converged; i++) {
             runs = i;
             // A fresh store each run re-derives the same rows, exactly as a real
             // `mod run` re-reads the table from the LST; only the generated context
@@ -953,7 +918,7 @@ class ExportContextTest implements RewriteTest {
             // Apply the changeset so created, modified and deleted context files
             // carry into the next run's source set; unchanged pages are not in the
             // changeset, so start from the current set rather than the results.
-            Map<String, SourceFile> byPath = new LinkedHashMap<>();
+            var byPath = new LinkedHashMap<String, SourceFile>();
             for (SourceFile sf : current) {
                 byPath.put(sf.getSourcePath().toString(), sf);
             }
@@ -978,7 +943,7 @@ class ExportContextTest implements RewriteTest {
             }
 
             SourceFile md = byPath.get(".moderne/context/test-coverage.md");
-            boolean omitted = md != null && md.printAll().contains("omitted");
+            var omitted = md != null && md.printAll().contains("omitted");
             if (i == 1) {
                 firstRunOmitted = omitted;
             }
@@ -989,13 +954,13 @@ class ExportContextTest implements RewriteTest {
         assertThat(converged).as("pagination converges so nothing is omitted").isTrue();
         assertThat(runs).as("converges within a few runs").isLessThanOrEqualTo(5);
 
-        StringBuilder all = new StringBuilder();
+        var all = new StringBuilder();
         for (SourceFile sf : current) {
             if (sf.getSourcePath().toString().endsWith(".csv")) {
                 all.append(sf.printAll());
             }
         }
-        for (int r = 0; r < rowCount; r++) {
+        for (var r = 0; r < rowCount; r++) {
             assertThat(all.toString())
               .as("every row survives once pagination has converged")
               .contains("com.example.Foo" + r + "Test");

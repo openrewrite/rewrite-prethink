@@ -22,15 +22,7 @@ import org.openrewrite.Option;
 import org.openrewrite.Recipe;
 import org.openrewrite.RecipeList;
 import org.openrewrite.prethink.calm.GenerateCalmArchitecture;
-import org.openrewrite.prethink.table.DataAssets;
-import org.openrewrite.prethink.table.DatabaseConnections;
-import org.openrewrite.prethink.table.DeploymentArtifacts;
-import org.openrewrite.prethink.table.ExternalServiceCalls;
-import org.openrewrite.prethink.table.MessagingConnections;
-import org.openrewrite.prethink.table.ProjectMetadata;
-import org.openrewrite.prethink.table.SecurityConfiguration;
-import org.openrewrite.prethink.table.ServerConfiguration;
-import org.openrewrite.prethink.table.ServiceEndpoints;
+import org.openrewrite.prethink.table.*;
 
 import java.util.Arrays;
 import java.util.List;

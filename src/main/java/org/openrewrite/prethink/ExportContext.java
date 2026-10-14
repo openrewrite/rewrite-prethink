@@ -145,6 +145,7 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         // placeholder. Published last via volatile so readers see a fully-built map.
         @Nullable
         volatile Map<String, String> csvByFilename;
+
         @Nullable
         volatile String markdown;
     }
@@ -517,8 +518,8 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
         if (existingOverflow == 0 && !saturated) {
             return 0;
         }
-        return saturated ? existingOverflow * 2 + PROVISION_HEADROOM_PAGES
-                         : existingOverflow + PROVISION_HEADROOM_PAGES;
+        return saturated ? existingOverflow * 2 + PROVISION_HEADROOM_PAGES :
+                         existingOverflow + PROVISION_HEADROOM_PAGES;
     }
 
     /**
@@ -692,11 +693,6 @@ public class ExportContext extends ScanningRecipe<ExportContext.Accumulator> {
             }
         }
         return columns;
-    }
-
-    private String tableToFilename(String tableFqn) {
-        // org.openrewrite.prethink.table.MethodDescriptions -> method-descriptions.csv
-        return tableToBaseName(tableFqn) + ".csv";
     }
 
     private String tableToBaseName(String tableFqn) {
