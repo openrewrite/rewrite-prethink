@@ -83,7 +83,7 @@ class ExportContextTest implements RewriteTest {
     }
 
     @Test
-    void tableToFilenameConversion() {
+    void tableToBaseNameConversion() {
         // Test the table name to filename conversion logic
         var exportContext = new ExportContext(
           "Test Context",
@@ -94,15 +94,15 @@ class ExportContextTest implements RewriteTest {
 
         // Use reflection to test the private method
         try {
-            var method = ExportContext.class.getDeclaredMethod("tableToFilename", String.class);
+            var method = ExportContext.class.getDeclaredMethod("tableToBaseName", String.class);
             method.setAccessible(true);
 
             assertThat(method.invoke(exportContext, "io.moderne.context.table.MethodDescriptions"))
-              .isEqualTo("method-descriptions.csv");
+              .isEqualTo("method-descriptions");
             assertThat(method.invoke(exportContext, "io.moderne.context.table.ClassDescriptions"))
-              .isEqualTo("class-descriptions.csv");
+              .isEqualTo("class-descriptions");
             assertThat(method.invoke(exportContext, "io.moderne.context.table.TestMapping"))
-              .isEqualTo("test-mapping.csv");
+              .isEqualTo("test-mapping");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
