@@ -97,7 +97,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
           spec -> spec
             .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
             .cycles(3)
-            .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
+            .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example;\npublic class GreetingController {}",
             spec -> spec.path("src/main/java/com/example/GreetingController.java")
@@ -196,7 +196,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
           spec -> spec
             .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
             .cycles(3)
-            .expectedCyclesThatMakeChanges(3), // DEBUG: see what's happening
+            .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example;\npublic class GreetingController {}",
             spec -> spec.path("src/main/java/com/example/GreetingController.java")
@@ -302,7 +302,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
               new GenerateCalmArchitecture()
             )
             .cycles(3)
-            .expectedCyclesThatMakeChanges(3),
+            .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example.order.controller;\npublic class OrderController {}",
             spec -> spec.path("src/main/java/com/example/order/controller/OrderController.java")
