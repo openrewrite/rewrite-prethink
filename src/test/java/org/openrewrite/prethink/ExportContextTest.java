@@ -578,7 +578,6 @@ class ExportContextTest implements RewriteTest {
             )
             // ExportContext now generates placeholder context files in cycle 1
             // and fills them with data-table content in cycle 2.
-            .cycles(3)
             .expectedCyclesThatMakeChanges(2),
           // Source files that trigger the two fake recipes
           text(
