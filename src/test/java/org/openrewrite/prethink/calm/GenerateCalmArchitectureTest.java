@@ -78,8 +78,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         rewriteRun(
           spec -> spec
             .recipe(new GenerateCalmArchitecture())
-            .expectedCyclesThatMakeChanges(2)
-            .cycles(3),
+            .expectedCyclesThatMakeChanges(2),
           text(
             "test content",
             spec -> spec.path("README.md")
@@ -96,7 +95,6 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         rewriteRun(
           spec -> spec
             .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
-            .cycles(3)
             .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example;\npublic class GreetingController {}",
@@ -195,7 +193,6 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         rewriteRun(
           spec -> spec
             .recipes(new PopulateServiceEndpoints(), new GenerateCalmArchitecture())
-            .cycles(3)
             .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example;\npublic class GreetingController {}",
@@ -301,7 +298,6 @@ class GenerateCalmArchitectureTest implements RewriteTest {
               new PopulateDatabaseConnections(),
               new GenerateCalmArchitecture()
             )
-            .cycles(3)
             .expectedCyclesThatMakeChanges(2),
           text(
             "package com.example.order.controller;\npublic class OrderController {}",
