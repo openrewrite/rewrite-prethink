@@ -78,8 +78,8 @@ class GenerateCalmArchitectureTest implements RewriteTest {
         rewriteRun(
           spec -> spec
             .recipe(new GenerateCalmArchitecture())
-            .cycles(2)
-            .expectedCyclesThatMakeChanges(2),
+            .expectedCyclesThatMakeChanges(2)
+            .cycles(3),
           text(
             "test content",
             spec -> spec.path("README.md")
