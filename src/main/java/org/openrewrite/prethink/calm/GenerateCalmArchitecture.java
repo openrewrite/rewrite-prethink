@@ -47,7 +47,7 @@ import static org.openrewrite.prethink.Prethink.CONTEXT_DIR;
 public class GenerateCalmArchitecture extends ScanningRecipe<GenerateCalmArchitecture.Accumulator> {
 
     private static final String CALM_FILENAME = "calm-architecture.json";
-    private static final String CALM_SCHEMA = "https://calm.finos.org/draft/2025-03/meta/calm.json";
+    private static final String CALM_SCHEMA = "https://calm.finos.org/release/1.3/meta/calm.json";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT)

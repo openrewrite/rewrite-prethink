@@ -115,7 +115,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
                   } ]
                 } ],
                 "relationships" : [ ],
-                "$schema" : "https://calm.finos.org/draft/2025-03/meta/calm.json"
+                "$schema" : "https://calm.finos.org/release/1.3/meta/calm.json"
               }
               """,
             spec -> spec.path(".moderne/context/calm-architecture.json")
