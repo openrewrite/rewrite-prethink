@@ -69,10 +69,9 @@ class ExportContextTest implements RewriteTest {
     void handlesNoDataTables() {
         // Test that the recipe handles the case when no DataTables are present
         rewriteRun(
-          spec -> spec.afterRecipe(run -> {
+          spec -> spec.afterRecipe(run ->
               // Should complete without error
-              assertThat(run).isNotNull();
-          }),
+              assertThat(run).isNotNull()),
           // Some source file
           text(
             //language=Markdown
@@ -593,25 +592,21 @@ class ExportContextTest implements RewriteTest {
             doesNotExist(),
             spec -> spec
               .path(".moderne/context/test-mapping.csv")
-              .after(csv -> {
-                  return assertThat(csv)
+              .after(csv -> assertThat(csv)
                   .contains("com.example.FooTest")
                   .contains("testFoo()")
                   .contains("com.example.BarTest")
-                  .contains("testBar()").actual();
-              })
+                  .contains("testBar()").actual())
           ),
           // Expect the markdown description file
           text(
             doesNotExist(),
             spec -> spec
               .path(".moderne/context/test-coverage.md")
-              .after(md -> {
-                  return assertThat(md)
+              .after(md -> assertThat(md)
                   .contains("# Test Coverage")
                   .contains("Maps tests to implementations")
-                  .contains("test-mapping.csv").actual();
-              })
+                  .contains("test-mapping.csv").actual())
           )
         );
     }

@@ -311,16 +311,14 @@ class GenerateCalmArchitectureTest implements RewriteTest {
             null,
             spec -> spec
               .path(".moderne/context/calm-architecture.json")
-              .after(content -> {
-                  return assertThat(content)
+              .after(content -> assertThat(content)
                   // Service node exists
                   .contains("order-controller")
                   // Database node exists
                   .contains("order-db")
                   // Connects relationship was created via sibling package matching
                   .contains("order-controller-to-order-db")
-                  .contains("\"connects\"").actual();
-              })
+                  .contains("\"connects\"").actual())
           )
         );
     }
