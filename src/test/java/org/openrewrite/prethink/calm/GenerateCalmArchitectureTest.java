@@ -174,7 +174,7 @@ class GenerateCalmArchitectureTest implements RewriteTest {
 
         SourceFile updated = run.getChangeset().getAllResults().stream()
           .filter(r -> r.getAfter() != null && ".moderne/context/calm-architecture.json".equals(r.getAfter().getSourcePath().toString()))
-          .findFirst().map(org.openrewrite.Result::getAfter).orElse(null);
+          .findFirst().map(Result::getAfter).orElse(null);
 
         assertThat(updated)
           .as("cycle 2 must run so the existing calm-architecture.json gets updated from data tables")
