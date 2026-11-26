@@ -15,6 +15,7 @@
  */
 package org.openrewrite.prethink;
 
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.openrewrite.DocumentExample;
 import org.openrewrite.test.RecipeSpec;
@@ -125,27 +126,6 @@ class UpdateGitignoreTest implements RewriteTest {
     }
 
     @Test
-    void noChangeWhenAlreadyCorrect() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-
-              # Moderne
-              .moderne/*
-              !.moderne/context/
-              """,
-            spec -> spec.path(".gitignore")
-          ),
-          text(
-            "Header\ndata row\n",
-            spec -> spec.path(".moderne/context/test-mapping.csv")
-          )
-        );
-    }
-
-    @Test
     void handlesModerneWithoutTrailingSlash() {
         rewriteRun(
           text(
@@ -195,112 +175,6 @@ class UpdateGitignoreTest implements RewriteTest {
     }
 
     @Test
-    void noChangeWhenNoContextFilesExist() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-
-              # Moderne
-              .moderne/
-
-              # IDE
-              .idea/
-              """,
-            spec -> spec.path(".gitignore")
-          )
-        );
-    }
-
-    @Test
-    void doesNotModifyOtherGitignores() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-              .moderne/
-              """,
-            spec -> spec.path("subdir/.gitignore")
-          ),
-          text(
-            "Header\ndata row\n",
-            spec -> spec.path(".moderne/context/test-mapping.csv")
-          )
-        );
-    }
-
-    @Test
-    void noChangeWhenCsvHasOnlyHeaders() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-
-              # Moderne
-              .moderne/
-
-              # IDE
-              .idea/
-              """,
-            spec -> spec.path(".gitignore")
-          ),
-          text(
-            "Header1,Header2\n",
-            spec -> spec.path(".moderne/context/test-mapping.csv")
-          )
-        );
-    }
-
-    @Test
-    void noChangeWhenCsvHasCommentsAndHeaderOnly() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-
-              # Moderne
-              .moderne/
-
-              # IDE
-              .idea/
-              """,
-            spec -> spec.path(".gitignore")
-          ),
-          text(
-            "# This is a comment\n# Another comment\nHeader1,Header2\n",
-            spec -> spec.path(".moderne/context/test-mapping.csv")
-          )
-        );
-    }
-
-    @Test
-    void noChangeWhenOnlyNonCsvContextFilesExist() {
-        rewriteRun(
-          text(
-            """
-              # Build
-              build/
-
-              # Moderne
-              .moderne/
-
-              # IDE
-              .idea/
-              """,
-            spec -> spec.path(".gitignore")
-          ),
-          text(
-            "some context content",
-            spec -> spec.path(".moderne/context/architecture.md")
-          )
-        );
-    }
-
-    @Test
     void updateGitignoreContentUnit() {
         // Test the static method directly
         var input = "build/\n.moderne/\n.idea/\n";
@@ -329,6 +203,137 @@ class UpdateGitignoreTest implements RewriteTest {
         var input = "# Moderne\n.moderne\n";
         String result = UpdateGitignore.updateGitignoreContent(input);
         assertThat(result).isEqualTo("# Moderne\n.moderne/*\n!.moderne/context/\n");
+    }
+
+    @Nested
+    class NoChange {
+
+        @Test
+        void noChangeWhenAlreadyCorrect() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+
+                  # Moderne
+                  .moderne/*
+                  !.moderne/context/
+                  """,
+                spec -> spec.path(".gitignore")
+              ),
+              text(
+                "Header\ndata row\n",
+                spec -> spec.path(".moderne/context/test-mapping.csv")
+              )
+            );
+        }
+
+        @Test
+        void noChangeWhenNoContextFilesExist() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+
+                  # Moderne
+                  .moderne/
+
+                  # IDE
+                  .idea/
+                  """,
+                spec -> spec.path(".gitignore")
+              )
+            );
+        }
+
+        @Test
+        void doesNotModifyOtherGitignores() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+                  .moderne/
+                  """,
+                spec -> spec.path("subdir/.gitignore")
+              ),
+              text(
+                "Header\ndata row\n",
+                spec -> spec.path(".moderne/context/test-mapping.csv")
+              )
+            );
+        }
+
+        @Test
+        void noChangeWhenCsvHasOnlyHeaders() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+
+                  # Moderne
+                  .moderne/
+
+                  # IDE
+                  .idea/
+                  """,
+                spec -> spec.path(".gitignore")
+              ),
+              text(
+                "Header1,Header2\n",
+                spec -> spec.path(".moderne/context/test-mapping.csv")
+              )
+            );
+        }
+
+        @Test
+        void noChangeWhenCsvHasCommentsAndHeaderOnly() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+
+                  # Moderne
+                  .moderne/
+
+                  # IDE
+                  .idea/
+                  """,
+                spec -> spec.path(".gitignore")
+              ),
+              text(
+                "# This is a comment\n# Another comment\nHeader1,Header2\n",
+                spec -> spec.path(".moderne/context/test-mapping.csv")
+              )
+            );
+        }
+
+        @Test
+        void noChangeWhenOnlyNonCsvContextFilesExist() {
+            rewriteRun(
+              text(
+                """
+                  # Build
+                  build/
+
+                  # Moderne
+                  .moderne/
+
+                  # IDE
+                  .idea/
+                  """,
+                spec -> spec.path(".gitignore")
+              ),
+              text(
+                "some context content",
+                spec -> spec.path(".moderne/context/architecture.md")
+              )
+            );
+        }
     }
 
 }
